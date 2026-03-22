@@ -152,6 +152,12 @@ const EXAMPLES: Record<string, ExampleSpec> = {
   "multi-clue": {
     rows: ["? ? ·", "? ? ·", "· 2 ·"],
   },
+  "guided-reveal": {
+    rows: ["?"],
+  },
+  "guided-flag": {
+    rows: ["?"],
+  },
 };
 
 /** Max unknown cells per multi-clue CSP search (full component or one sliding window). */
@@ -249,18 +255,6 @@ function getSortedFrontierIndices(state: GameState): number[] {
     }
   }
   return [...frontier].sort((a, b) => a - b);
-}
-
-/** How many sliding windows of size {@link CSP_HINT_WINDOW_SIZE} cover the frontier (0 if empty). */
-export function getCspFrontierMeta(state: GameState): {
-  frontierSize: number;
-  windowCount: number;
-} {
-  if (state.status !== "playing") return { frontierSize: 0, windowCount: 0 };
-  const sorted = getSortedFrontierIndices(state);
-  const n = sorted.length;
-  if (n === 0) return { frontierSize: 0, windowCount: 0 };
-  return { frontierSize: n, windowCount: Math.ceil(n / CSP_HINT_WINDOW_SIZE) };
 }
 
 function collectClueConstraintsForComponent(state: GameState, comp: Set<number>): ClueConstraint[] {
@@ -384,7 +378,7 @@ function tryForcedHintFromConstraints(
   return null;
 }
 
-function findMultiClueHint(state: GameState, cspWindowPass: number): Hint | null {
+function findMultiClueHint(state: GameState): Hint | null {
   const components = buildFrontierComponents(state);
   for (const compArr of components) {
     if (compArr.length === 0 || compArr.length > CSP_HINT_WINDOW_SIZE) continue;
@@ -398,12 +392,58 @@ function findMultiClueHint(state: GameState, cspWindowPass: number): Hint | null
   if (sortedFrontier.length <= CSP_HINT_WINDOW_SIZE) return null;
 
   const numWindows = Math.ceil(sortedFrontier.length / CSP_HINT_WINDOW_SIZE);
-  const k = ((cspWindowPass % numWindows) + numWindows) % numWindows;
-  const W = new Set(
-    sortedFrontier.slice(k * CSP_HINT_WINDOW_SIZE, k * CSP_HINT_WINDOW_SIZE + CSP_HINT_WINDOW_SIZE),
-  );
-  const constraints = collectClueConstraintsForComponent(state, W);
-  return tryForcedHintFromConstraints(state, constraints);
+  for (let wi = 0; wi < numWindows; wi++) {
+    const W = new Set(
+      sortedFrontier.slice(
+        wi * CSP_HINT_WINDOW_SIZE,
+        wi * CSP_HINT_WINDOW_SIZE + CSP_HINT_WINDOW_SIZE,
+      ),
+    );
+    const constraints = collectClueConstraintsForComponent(state, W);
+    const h = tryForcedHintFromConstraints(state, constraints);
+    if (h) return h;
+  }
+  return null;
+}
+
+/**
+ * When no logical pattern applies, use the true mine layout so a new player can still finish
+ * Expert (and any mode) by following help—this is not a deduction from visible clues alone.
+ */
+function findOracleProgressHint(state: GameState): Hint | null {
+  if (state.status !== "playing") return null;
+  const { rows, cols } = state;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = getCell(state, r, c);
+      if (cell.revealed || cell.flagged) continue;
+      if (!cell.isMine) {
+        return {
+          patternId: "guided-reveal",
+          title: "Guided step — safe to reveal",
+          body: "No small pattern is listed for this position, but this square is safe—left-click to reveal it.",
+          cells: [{ row: r, col: c, role: "focus" }],
+          example: EXAMPLES["guided-reveal"]!,
+        };
+      }
+    }
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = getCell(state, r, c);
+      if (cell.revealed || cell.flagged) continue;
+      if (cell.isMine) {
+        return {
+          patternId: "guided-flag",
+          title: "Guided step — place a flag",
+          body: "Only mines are left among hidden squares here—right-click to flag this one.",
+          cells: [{ row: r, col: c, role: "focus" }],
+          example: EXAMPLES["guided-flag"]!,
+        };
+      }
+    }
+  }
+  return null;
 }
 
 function subsetHintBody(allMines: boolean): string {
@@ -630,10 +670,10 @@ function findSingleClueHint(state: GameState): Hint | null {
 
 export type FindHintOptions = {
   /**
-   * Which sliding window of the frontier to search for multi-clue CSP (0-based).
-   * Only matters when the frontier has more than {@link CSP_HINT_WINDOW_SIZE} cells.
+   * When false, only pattern-based hints are returned (for tests / strict logic-only mode).
+   * Default true: after logic fails, suggests a correct reveal or flag using the hidden board.
    */
-  readonly cspWindowPass?: number;
+  readonly enableOracleFallback?: boolean;
 };
 
 export function findHint(state: GameState, options?: FindHintOptions): Hint | null {
@@ -645,8 +685,12 @@ export function findHint(state: GameState, options?: FindHintOptions): Hint | nu
   const pair = findPairwiseSubsetHint(state);
   if (pair) return pair;
 
-  const pass = options?.cspWindowPass ?? 0;
-  return findMultiClueHint(state, pass);
+  const multi = findMultiClueHint(state);
+  if (multi) return multi;
+
+  if (options?.enableOracleFallback === false) return null;
+
+  return findOracleProgressHint(state);
 }
 
 export type HintNarrative =
@@ -664,6 +708,8 @@ export type HintNarrative =
       oneTwoOne: boolean;
     }
   | { kind: "multi-clue"; title: string; mustMine: boolean }
+  | { kind: "guided-reveal"; title: string }
+  | { kind: "guided-flag"; title: string }
   | { kind: "fallback"; title: string; body: string };
 
 export function getHintNarrative(state: GameState, hint: Hint): HintNarrative {
@@ -757,6 +803,13 @@ export function getHintNarrative(state: GameState, hint: Hint): HintNarrative {
           : "Multiple clues — this cell must be safe",
       mustMine: hint.patternId === "multi-clue-mines",
     };
+  }
+
+  if (hint.patternId === "guided-reveal") {
+    return { kind: "guided-reveal", title: hint.title };
+  }
+  if (hint.patternId === "guided-flag") {
+    return { kind: "guided-flag", title: hint.title };
   }
 
   return { kind: "fallback", title: hint.title, body: hint.body };

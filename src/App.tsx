@@ -19,14 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { HINT_CLUE_A_RING, HINT_CLUE_B_RING, HINT_SCOPE_SURFACE } from "@/lib/hint-clue-rings.ts";
 import { cn } from "@/lib/utils";
 
-import {
-  CSP_HINT_WINDOW_SIZE,
-  type Hint,
-  type HintRole,
-  findHint,
-  getCspFrontierMeta,
-  getHintNarrative,
-} from "./hints.ts";
+import { type Hint, type HintRole, findHint, getHintNarrative } from "./hints.ts";
 import { type ThemePreference, useThemePreference } from "./use-theme.ts";
 
 import {
@@ -34,7 +27,6 @@ import {
   type Difficulty,
   DIFFICULTIES,
   type GameState,
-  NO_FORCED_MOVE_HINT,
   cloneGameState,
   createGame,
   describeLocalFlagContradictions,
@@ -215,8 +207,6 @@ export default function App() {
   const highlightClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const undoStackRef = useRef<GameState[]>([]);
   const redoStackRef = useRef<GameState[]>([]);
-  /** Which sliding CSP window (0-based) to search on the next hint request when the frontier is large. */
-  const cspWindowPassRef = useRef(0);
 
   const cancelHighlightClear = useCallback(() => {
     if (highlightClearTimeoutRef.current !== undefined) {
@@ -289,7 +279,6 @@ export default function App() {
       if (isRevealable(g, row, col)) pushUndoSnapshot();
       const wasPlaying = g.status === "playing";
       setHelpBanner(null);
-      cspWindowPassRef.current = 0;
       clearHintFully();
       reveal(g, row, col);
       if (!wasPlaying && g.status === "playing") startTimer();
@@ -309,7 +298,6 @@ export default function App() {
     stopTimer();
     clearHintFully();
     setHelpBanner(null);
-    cspWindowPassRef.current = 0;
     gameRef.current = snap;
     setGame(snap);
     if (snap.status === "playing" && snap.started) startTimer();
@@ -325,7 +313,6 @@ export default function App() {
     stopTimer();
     clearHintFully();
     setHelpBanner(null);
-    cspWindowPassRef.current = 0;
     gameRef.current = snap;
     setGame(snap);
     if (snap.status === "playing" && snap.started) startTimer();
@@ -336,7 +323,6 @@ export default function App() {
     (row: number, col: number) => {
       const g = gameRef.current;
       setHelpBanner(null);
-      cspWindowPassRef.current = 0;
       clearHintFully();
       toggleFlag(g, row, col);
       if (g.status === "won" || g.status === "lost") stopTimer();
@@ -359,39 +345,21 @@ export default function App() {
     if (g.status !== "playing") {
       setHelpBanner(
         g.status === "idle"
-          ? "Reveal a cell first—pattern help works once the game is in progress."
-          : "Start a new game to use pattern help.",
+          ? "Reveal a cell first—help (H) works once the game is in progress."
+          : "Start a new game to use help.",
       );
       return;
     }
     const flagIssue = describeLocalFlagContradictions(g);
     if (flagIssue) {
-      cspWindowPassRef.current = 0;
       setHelpBanner(flagIssue);
       return;
     }
-    const pass = cspWindowPassRef.current;
-    const h = findHint(g, { cspWindowPass: pass });
+    const h = findHint(g);
     if (!h) {
-      const meta = getCspFrontierMeta(g);
-      if (meta.windowCount > 1 && pass < meta.windowCount - 1) {
-        cspWindowPassRef.current = pass + 1;
-        setHelpBanner(
-          `No logical move in search region ${pass + 1} of ${meta.windowCount}. Press H again to search the next ${CSP_HINT_WINDOW_SIZE} cells.`,
-        );
-        return;
-      }
-      cspWindowPassRef.current = 0;
-      if (meta.windowCount > 1 && pass >= meta.windowCount - 1) {
-        setHelpBanner(
-          `Searched all ${meta.windowCount} regions—still no simple logical move. ${NO_FORCED_MOVE_HINT}`,
-        );
-        return;
-      }
-      setHelpBanner(`No simple logical move found. ${NO_FORCED_MOVE_HINT}`);
+      setHelpBanner("Could not suggest a move—try undo or start a new game.");
       return;
     }
-    cspWindowPassRef.current = 0;
     setHelpBanner(null);
     cancelHighlightClear();
     setActiveHint(h);
@@ -431,7 +399,6 @@ export default function App() {
       stopTimer();
       clearHintFully();
       setHelpBanner(null);
-      cspWindowPassRef.current = 0;
       undoStackRef.current = [];
       redoStackRef.current = [];
       const g = createGame(difficulty);
@@ -522,8 +489,8 @@ export default function App() {
             variant="ghost"
             size="icon-sm"
             onClick={handleHelp}
-            aria-label="Pattern help"
-            title="Pattern help (H)"
+            aria-label="Help — patterns or guided move"
+            title="Help (H) — patterns or guided move"
           >
             <CircleHelp className="size-4" />
           </Button>
@@ -587,7 +554,7 @@ export default function App() {
               : "Boom! Better luck next time."
             : helpBanner
               ? helpBanner
-              : "Click to reveal \u00b7 Right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Pattern help (H toggles) \u00b7 First click is always safe"}
+              : "Click to reveal \u00b7 Right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Help (H) — logic patterns or guided move \u00b7 First click is always safe"}
         </p>
       </div>
     </div>
