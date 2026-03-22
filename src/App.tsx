@@ -1,10 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Flag, Frown, Monitor, Moon, RotateCcw, Sparkles, Sun, Timer } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CircleHelp,
+  Flag,
+  Frown,
+  Monitor,
+  Moon,
+  RotateCcw,
+  Sparkles,
+  Sun,
+  Timer,
+} from "lucide-react";
 
+import { HintExplanation } from "@/components/hint-explanation.tsx";
+import { HintRegionPreview } from "@/components/hint-region-preview.tsx";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { HINT_CLUE_A_RING, HINT_CLUE_B_RING } from "@/lib/hint-clue-rings.ts";
 import { cn } from "@/lib/utils";
 
+import { type Hint, type HintRole, findHint, getHintNarrative } from "./hints.ts";
 import { type ThemePreference, useThemePreference } from "./use-theme.ts";
 
 import {
@@ -39,6 +54,7 @@ function CellButton({
   row,
   col,
   gameOver,
+  highlight,
   onReveal,
   onFlag,
 }: {
@@ -46,6 +62,7 @@ function CellButton({
   row: number;
   col: number;
   gameOver: boolean;
+  highlight?: HintRole;
   onReveal: (row: number, col: number) => void;
   onFlag: (row: number, col: number) => void;
 }) {
@@ -106,6 +123,12 @@ function CellButton({
               "hover:brightness-105",
             ],
         wrongFlag && "bg-destructive/20 line-through",
+        highlight === "clue" && "relative z-10 ring-2 ring-inset ring-ring",
+        highlight === "clue-a" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_A_RING),
+        highlight === "clue-b" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_B_RING),
+        highlight === "scope" && "relative z-10 bg-primary/15 dark:bg-primary/25",
+        highlight === "focus" &&
+          "relative z-10 ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
       )}
     >
       {content}
@@ -173,6 +196,52 @@ export default function App() {
   const gameRef = useRef(game);
   gameRef.current = game;
 
+  const [activeHint, setActiveHint] = useState<Hint | null>(null);
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
+  const [helpBanner, setHelpBanner] = useState<string | null>(null);
+  const activeHintRef = useRef<Hint | null>(null);
+  activeHintRef.current = activeHint;
+  const highlightClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const cancelHighlightClear = useCallback(() => {
+    if (highlightClearTimeoutRef.current !== undefined) {
+      clearTimeout(highlightClearTimeoutRef.current);
+      highlightClearTimeoutRef.current = undefined;
+    }
+  }, []);
+
+  const scheduleHighlightClear = useCallback(() => {
+    cancelHighlightClear();
+    highlightClearTimeoutRef.current = setTimeout(() => {
+      setActiveHint(null);
+      highlightClearTimeoutRef.current = undefined;
+    }, 3000);
+  }, [cancelHighlightClear]);
+
+  const clearHintFully = useCallback(() => {
+    cancelHighlightClear();
+    setActiveHint(null);
+    setHelpDialogOpen(false);
+  }, [cancelHighlightClear]);
+
+  const dismissHintDialog = useCallback(() => {
+    setHelpDialogOpen(false);
+    scheduleHighlightClear();
+  }, [scheduleHighlightClear]);
+
+  useEffect(() => () => cancelHighlightClear(), [cancelHighlightClear]);
+
+  const highlightByKey = useMemo(() => {
+    const m = new Map<string, HintRole>();
+    if (!activeHint) return m;
+    for (const c of activeHint.cells) {
+      m.set(`${c.row},${c.col}`, c.role);
+    }
+    return m;
+  }, [activeHint]);
+
+  const hintNarrative = activeHint ? getHintNarrative(game, activeHint) : null;
+
   const forceRender = useCallback(() => setTick((n) => n + 1), []);
 
   const stopTimer = useCallback(() => {
@@ -196,32 +265,88 @@ export default function App() {
     (row: number, col: number) => {
       const g = gameRef.current;
       const wasPlaying = g.status === "playing";
+      setHelpBanner(null);
+      clearHintFully();
       reveal(g, row, col);
       if (!wasPlaying && g.status === "playing") startTimer();
       if (g.status === "won" || g.status === "lost") stopTimer();
       forceRender();
     },
-    [startTimer, stopTimer, forceRender],
+    [startTimer, stopTimer, forceRender, clearHintFully],
   );
 
   const handleFlag = useCallback(
     (row: number, col: number) => {
       const g = gameRef.current;
+      setHelpBanner(null);
+      clearHintFully();
       toggleFlag(g, row, col);
       if (g.status === "won" || g.status === "lost") stopTimer();
       forceRender();
     },
-    [stopTimer, forceRender],
+    [stopTimer, forceRender, clearHintFully],
   );
+
+  const handleHelp = useCallback(() => {
+    const g = gameRef.current;
+    if (helpDialogOpen) {
+      dismissHintDialog();
+      return;
+    }
+    if (activeHintRef.current) {
+      cancelHighlightClear();
+      setHelpDialogOpen(true);
+      return;
+    }
+    if (g.status !== "playing") {
+      setHelpBanner(
+        g.status === "idle"
+          ? "Reveal a cell first—pattern help works once the game is in progress."
+          : "Start a new game to use pattern help.",
+      );
+      return;
+    }
+    const h = findHint(g);
+    if (!h) {
+      setHelpBanner("No simple logical move found—double-check flags or try a new area.");
+      return;
+    }
+    setHelpBanner(null);
+    cancelHighlightClear();
+    setActiveHint(h);
+    setHelpDialogOpen(true);
+  }, [helpDialogOpen, dismissHintDialog, cancelHighlightClear]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (k !== "h") return;
+      const t = e.target;
+      if (t instanceof HTMLElement && t.isContentEditable) return;
+      if (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement
+      )
+        return;
+      e.preventDefault();
+      handleHelp();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleHelp]);
 
   const resetGame = useCallback(
     (difficulty: Difficulty) => {
       stopTimer();
+      clearHintFully();
+      setHelpBanner(null);
       const g = createGame(difficulty);
       setGame(g);
       gameRef.current = g;
     },
-    [stopTimer],
+    [stopTimer, clearHintFully],
   );
 
   const currentDifficulty =
@@ -234,6 +359,27 @@ export default function App() {
 
   return (
     <div className="flex min-h-svh items-center justify-center p-4">
+      <Dialog
+        open={helpDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) dismissHintDialog();
+        }}
+      >
+        <DialogContent className="max-h-[min(90vh,720px)] overflow-y-auto sm:max-w-lg">
+          {activeHint && hintNarrative ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{hintNarrative.title}</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-3">
+                <HintRegionPreview game={game} hint={activeHint} />
+                <HintExplanation narrative={hintNarrative} />
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <div className="flex w-fit max-w-[96vw] flex-col gap-3">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-lg font-semibold tracking-tight">Minesweeper</h1>
@@ -280,6 +426,16 @@ export default function App() {
             )}
           </Button>
 
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleHelp}
+            aria-label="Pattern help"
+            title="Pattern help (H)"
+          >
+            <CircleHelp className="size-4" />
+          </Button>
+
           <StatReadout
             icon={Timer}
             label={`Elapsed time: ${formatTime(game.elapsedSeconds)} seconds`}
@@ -302,6 +458,7 @@ export default function App() {
           {Array.from({ length: game.rows }, (_, row) =>
             Array.from({ length: game.cols }, (_, col) => {
               const cell = game.cells[row * game.cols + col]!;
+              const hk = `${row},${col}`;
               return (
                 <CellButton
                   key={`${row}-${col}`}
@@ -309,6 +466,7 @@ export default function App() {
                   row={row}
                   col={col}
                   gameOver={gameOver}
+                  highlight={highlightByKey.get(hk)}
                   onReveal={handleReveal}
                   onFlag={handleFlag}
                 />
@@ -335,7 +493,9 @@ export default function App() {
             ? game.status === "won"
               ? "You cleared the field!"
               : "Boom! Better luck next time."
-            : "Click to reveal \u00b7 Right-click to flag \u00b7 First click is always safe"}
+            : helpBanner
+              ? helpBanner
+              : "Click to reveal \u00b7 Right-click to flag \u00b7 Pattern help (H toggles) \u00b7 First click is always safe"}
         </p>
       </div>
     </div>
