@@ -76,6 +76,9 @@ function formatTime(seconds: number): string {
   return String(Math.min(999, Math.floor(seconds))).padStart(3, "0");
 }
 
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_MOVE_PX = 12;
+
 function CellButton({
   cell,
   row,
@@ -93,16 +96,96 @@ function CellButton({
   onReveal: (row: number, col: number) => void;
   onFlag: (row: number, col: number) => void;
 }) {
-  const handleClick = useCallback(() => onReveal(row, col), [onReveal, row, col]);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const suppressClickRef = useRef(false);
+  const recentLongPressFlagRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== undefined) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = undefined;
+    }
+  }, []);
+
+  useEffect(() => () => clearLongPressTimer(), [clearLongPressTimer]);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (e.button !== 2) return;
+      if (gameOver || cell.revealed) return;
+      if (e.pointerType !== "touch" || e.button !== 0) return;
+      clearLongPressTimer();
+      touchStartRef.current = { x: e.clientX, y: e.clientY };
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = undefined;
+        recentLongPressFlagRef.current = true;
+        suppressClickRef.current = true;
+        onFlag(row, col);
+        window.setTimeout(() => {
+          recentLongPressFlagRef.current = false;
+        }, 600);
+      }, LONG_PRESS_MS);
+      try {
+        (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [gameOver, cell.revealed, clearLongPressTimer, onFlag, row, col],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (longPressTimerRef.current === undefined || !touchStartRef.current) return;
+      if (e.pointerType !== "touch") return;
+      const { x, y } = touchStartRef.current;
+      const dx = Math.abs(e.clientX - x);
+      const dy = Math.abs(e.clientY - y);
+      if (dx > LONG_PRESS_MOVE_PX || dy > LONG_PRESS_MOVE_PX) {
+        clearLongPressTimer();
+        touchStartRef.current = null;
+      }
+    },
+    [clearLongPressTimer],
+  );
+
+  const handlePointerUpOrCancel = useCallback(
+    (e: React.PointerEvent) => {
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        /* ignore */
+      }
+      clearLongPressTimer();
+      touchStartRef.current = null;
+    },
+    [clearLongPressTimer],
+  );
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (suppressClickRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressClickRef.current = false;
+        return;
+      }
+      onReveal(row, col);
+    },
+    [onReveal, row, col],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
       e.preventDefault();
+      if (gameOver || cell.revealed) return;
+      if (recentLongPressFlagRef.current) return;
       onFlag(row, col);
     },
-    [onFlag, row, col],
+    [gameOver, cell.revealed, onFlag, row, col],
   );
-  const handleContextMenu = useCallback((e: React.MouseEvent) => e.preventDefault(), []);
 
   let content: React.ReactNode = null;
   if (cell.flagged && !gameOver)
@@ -130,10 +213,14 @@ function CellButton({
       type="button"
       onClick={handleClick}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUpOrCancel}
+      onPointerCancel={handlePointerUpOrCancel}
+      onPointerLeave={handlePointerUpOrCancel}
       onContextMenu={handleContextMenu}
       aria-label={`Cell row ${row + 1} column ${col + 1}`}
       className={cn(
-        "grid size-full min-h-0 min-w-0 place-items-center p-0 text-[clamp(0.6rem,2.5vw,0.85rem)] font-bold leading-none select-none",
+        "grid size-full min-h-0 min-w-0 place-items-center p-0 text-[clamp(0.6rem,2.5vw,0.85rem)] font-bold leading-none select-none touch-manipulation [-webkit-touch-callout:none]",
         "transition-transform duration-100 ease-out",
         cell.revealed
           ? [
@@ -581,7 +668,7 @@ export default function App() {
               : "Boom! Better luck next time."
             : helpBanner
               ? helpBanner
-              : "Click to reveal \u00b7 Right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Pattern help (H) — derive moves from clues \u00b7 First click is always safe"}
+              : "Tap to reveal \u00b7 Long-press or right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Pattern help (H) — derive moves from clues \u00b7 First tap is always safe"}
         </p>
       </div>
     </div>
