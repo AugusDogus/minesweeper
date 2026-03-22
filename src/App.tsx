@@ -38,6 +38,29 @@ import {
   toggleFlag,
 } from "./game.ts";
 
+const DIFFICULTY_STORAGE_KEY = "minesweeper-difficulty";
+
+function readStoredDifficulty(): Difficulty {
+  if (typeof window === "undefined") return DIFFICULTIES[1]!;
+  try {
+    const id = localStorage.getItem(DIFFICULTY_STORAGE_KEY);
+    const d = DIFFICULTIES.find((x) => x.id === id);
+    if (d) return d;
+  } catch {
+    /* ignore */
+  }
+  return DIFFICULTIES[1]!;
+}
+
+function persistDifficulty(difficulty: Difficulty) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(DIFFICULTY_STORAGE_KEY, difficulty.id);
+  } catch {
+    /* ignore */
+  }
+}
+
 const NUMBER_COLORS: Record<number, string> = {
   1: "text-[var(--n1)]",
   2: "text-[var(--n2)]",
@@ -194,7 +217,7 @@ function ThemeToggle({
 
 export default function App() {
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
-  const [game, setGame] = useState<GameState>(() => createGame(DIFFICULTIES[1]!));
+  const [game, setGame] = useState<GameState>(() => createGame(readStoredDifficulty()));
   const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const gameRef = useRef(game);
@@ -407,6 +430,7 @@ export default function App() {
       const g = createGame(difficulty);
       setGame(g);
       gameRef.current = g;
+      persistDifficulty(difficulty);
     },
     [stopTimer, clearHintFully],
   );
