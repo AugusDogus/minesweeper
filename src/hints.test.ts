@@ -21,19 +21,6 @@ function stateFromCells(
   };
 }
 
-test("guided fallback suggests a safe reveal when no logical pattern applies", () => {
-  const cells: Cell[] = Array.from({ length: 4 }, () => ({
-    isMine: false,
-    adjacent: 0,
-    revealed: false,
-    flagged: false,
-  }));
-  const s = stateFromCells(2, 2, cells, 0);
-  const h = findHint(s);
-  expect(h).not.toBeNull();
-  expect(h!.patternId).toBe("guided-reveal");
-});
-
 test("returns null when no revealed clues", () => {
   const cells: Cell[] = [
     { isMine: false, adjacent: 0, revealed: false, flagged: false },
@@ -42,7 +29,7 @@ test("returns null when no revealed clues", () => {
     { isMine: false, adjacent: 0, revealed: false, flagged: false },
   ];
   const s = stateFromCells(2, 2, cells, 0);
-  expect(findHint(s, { enableOracleFallback: false })).toBeNull();
+  expect(findHint(s)).toBeNull();
 });
 
 test("basic counting: all remaining neighbors are mines", () => {

@@ -29,6 +29,7 @@ import {
   type GameState,
   cloneGameState,
   createGame,
+  NO_FORCED_MOVE_HINT,
   describeLocalFlagContradictions,
   flagCount,
   isRevealable,
@@ -345,8 +346,8 @@ export default function App() {
     if (g.status !== "playing") {
       setHelpBanner(
         g.status === "idle"
-          ? "Reveal a cell first—help (H) works once the game is in progress."
-          : "Start a new game to use help.",
+          ? "Reveal a cell first—pattern help (H) works once the game is in progress."
+          : "Start a new game to use pattern help.",
       );
       return;
     }
@@ -357,7 +358,9 @@ export default function App() {
     }
     const h = findHint(g);
     if (!h) {
-      setHelpBanner("Could not suggest a move—try undo or start a new game.");
+      setHelpBanner(
+        `No move can be derived from visible clues with the techniques help teaches—recheck flags, look for overlapping regions, or guess. ${NO_FORCED_MOVE_HINT}`,
+      );
       return;
     }
     setHelpBanner(null);
@@ -489,8 +492,8 @@ export default function App() {
             variant="ghost"
             size="icon-sm"
             onClick={handleHelp}
-            aria-label="Help — patterns or guided move"
-            title="Help (H) — patterns or guided move"
+            aria-label="Pattern help"
+            title="Pattern help (H)"
           >
             <CircleHelp className="size-4" />
           </Button>
@@ -554,7 +557,7 @@ export default function App() {
               : "Boom! Better luck next time."
             : helpBanner
               ? helpBanner
-              : "Click to reveal \u00b7 Right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Help (H) — logic patterns or guided move \u00b7 First click is always safe"}
+              : "Click to reveal \u00b7 Right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Pattern help (H) — derive moves from clues \u00b7 First click is always safe"}
         </p>
       </div>
     </div>

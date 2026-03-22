@@ -152,12 +152,6 @@ const EXAMPLES: Record<string, ExampleSpec> = {
   "multi-clue": {
     rows: ["? ? ·", "? ? ·", "· 2 ·"],
   },
-  "guided-reveal": {
-    rows: ["?"],
-  },
-  "guided-flag": {
-    rows: ["?"],
-  },
 };
 
 /** Max unknown cells per multi-clue CSP search (full component or one sliding window). */
@@ -406,46 +400,6 @@ function findMultiClueHint(state: GameState): Hint | null {
   return null;
 }
 
-/**
- * When no logical pattern applies, use the true mine layout so a new player can still finish
- * Expert (and any mode) by following help—this is not a deduction from visible clues alone.
- */
-function findOracleProgressHint(state: GameState): Hint | null {
-  if (state.status !== "playing") return null;
-  const { rows, cols } = state;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cell = getCell(state, r, c);
-      if (cell.revealed || cell.flagged) continue;
-      if (!cell.isMine) {
-        return {
-          patternId: "guided-reveal",
-          title: "Guided step — safe to reveal",
-          body: "No small pattern is listed for this position, but this square is safe—left-click to reveal it.",
-          cells: [{ row: r, col: c, role: "focus" }],
-          example: EXAMPLES["guided-reveal"]!,
-        };
-      }
-    }
-  }
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cell = getCell(state, r, c);
-      if (cell.revealed || cell.flagged) continue;
-      if (cell.isMine) {
-        return {
-          patternId: "guided-flag",
-          title: "Guided step — place a flag",
-          body: "Only mines are left among hidden squares here—right-click to flag this one.",
-          cells: [{ row: r, col: c, role: "focus" }],
-          example: EXAMPLES["guided-flag"]!,
-        };
-      }
-    }
-  }
-  return null;
-}
-
 function subsetHintBody(allMines: boolean): string {
   if (allMines) {
     return (
@@ -668,15 +622,7 @@ function findSingleClueHint(state: GameState): Hint | null {
   return null;
 }
 
-export type FindHintOptions = {
-  /**
-   * When false, only pattern-based hints are returned (for tests / strict logic-only mode).
-   * Default true: after logic fails, suggests a correct reveal or flag using the hidden board.
-   */
-  readonly enableOracleFallback?: boolean;
-};
-
-export function findHint(state: GameState, options?: FindHintOptions): Hint | null {
+export function findHint(state: GameState): Hint | null {
   if (state.status !== "playing") return null;
 
   const single = findSingleClueHint(state);
@@ -685,12 +631,7 @@ export function findHint(state: GameState, options?: FindHintOptions): Hint | nu
   const pair = findPairwiseSubsetHint(state);
   if (pair) return pair;
 
-  const multi = findMultiClueHint(state);
-  if (multi) return multi;
-
-  if (options?.enableOracleFallback === false) return null;
-
-  return findOracleProgressHint(state);
+  return findMultiClueHint(state);
 }
 
 export type HintNarrative =
@@ -708,8 +649,6 @@ export type HintNarrative =
       oneTwoOne: boolean;
     }
   | { kind: "multi-clue"; title: string; mustMine: boolean }
-  | { kind: "guided-reveal"; title: string }
-  | { kind: "guided-flag"; title: string }
   | { kind: "fallback"; title: string; body: string };
 
 export function getHintNarrative(state: GameState, hint: Hint): HintNarrative {
@@ -803,13 +742,6 @@ export function getHintNarrative(state: GameState, hint: Hint): HintNarrative {
           : "Multiple clues — this cell must be safe",
       mustMine: hint.patternId === "multi-clue-mines",
     };
-  }
-
-  if (hint.patternId === "guided-reveal") {
-    return { kind: "guided-reveal", title: hint.title };
-  }
-  if (hint.patternId === "guided-flag") {
-    return { kind: "guided-flag", title: hint.title };
   }
 
   return { kind: "fallback", title: hint.title, body: hint.body };

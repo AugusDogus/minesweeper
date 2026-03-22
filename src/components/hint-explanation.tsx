@@ -127,25 +127,6 @@ export function HintExplanation({ narrative }: { narrative: HintNarrative }) {
     );
   }
 
-  if (narrative.kind === "guided-reveal") {
-    return (
-      <p className="leading-relaxed text-muted-foreground">
-        When the numbers don’t force a single answer, help can still point to a safe square so you
-        can keep playing—left-click the amber outline. That step is from the full board, not from
-        the clues alone.
-      </p>
-    );
-  }
-
-  if (narrative.kind === "guided-flag") {
-    return (
-      <p className="leading-relaxed text-muted-foreground">
-        Every non-mine square is already cleared—flag the remaining hidden mines. Right-click the
-        amber outline.
-      </p>
-    );
-  }
-
   const { dSmall, mSmall, dLarge, mLarge, need, nFocus, oneTwoOne, kind } = narrative;
   const isMines = kind === "subset-mines";
 
