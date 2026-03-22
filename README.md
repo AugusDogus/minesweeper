@@ -1,18 +1,6 @@
 # Minesweeper
 
-Classic Minesweeper in the browser: left-click to reveal, right-click to flag, three difficulties, and a timer. Built with **React**, **TypeScript**, **Tailwind CSS**, and **Vite+** (Vite-based toolchain).
-
 ![Minesweeper in dark mode (Intermediate difficulty, new game)](docs/screenshot.png)
-
-## Play
-
-- **Reveal** a hidden square — left-click (or tap).
-- **Flag** a suspected mine — right-click (or long-press on touch devices).
-- **New game** — reset with the same difficulty.
-- **Pattern help** — click the help icon or press **`H`** to open a hint when a logical move exists. The board highlights the relevant cells; after you close the dialog, highlights stay for a few seconds so you can act on them.
-- **Theme** — light, dark, or follow the system setting.
-
-The first reveal is always safe: mines are placed after you click, avoiding your cell and its neighbors.
 
 ## Development
 
