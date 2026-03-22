@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useWebHaptics } from "web-haptics/react";
 import {
   CircleHelp,
   Flag,
@@ -324,6 +325,16 @@ function ThemeToggle({
 
 export default function App() {
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
+  const { trigger: triggerHaptic, isSupported: hapticsSupported } = useWebHaptics();
+
+  const hapticMobile = useCallback(
+    (preset: "success" | "error" | "selection" | "light") => {
+      if (!hapticsSupported || typeof window === "undefined") return;
+      if (!window.matchMedia("(pointer: coarse)").matches) return;
+      void triggerHaptic(preset);
+    },
+    [hapticsSupported, triggerHaptic],
+  );
   const [game, setGame] = useState<GameState>(() => createGame(readStoredDifficulty()));
   const [, setTick] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -415,16 +426,22 @@ export default function App() {
   const handleReveal = useCallback(
     (row: number, col: number) => {
       const g = gameRef.current;
-      if (isRevealable(g, row, col)) pushUndoSnapshot();
+      const canReveal = isRevealable(g, row, col);
+      if (canReveal) pushUndoSnapshot();
       const wasPlaying = g.status === "playing";
       setHelpBanner(null);
       clearHintFully();
       reveal(g, row, col);
+      if (canReveal) {
+        if (g.status === "lost") hapticMobile("error");
+        else if (g.status === "won") hapticMobile("success");
+        else hapticMobile("selection");
+      }
       if (!wasPlaying && g.status === "playing") startTimer();
       if (g.status === "won" || g.status === "lost") stopTimer();
       forceRender();
     },
-    [startTimer, stopTimer, forceRender, clearHintFully, pushUndoSnapshot],
+    [startTimer, stopTimer, forceRender, clearHintFully, pushUndoSnapshot, hapticMobile],
   );
 
   const handleUndoReveal = useCallback(() => {
@@ -461,13 +478,20 @@ export default function App() {
   const handleFlag = useCallback(
     (row: number, col: number) => {
       const g = gameRef.current;
+      const idx = row * g.cols + col;
+      const wasFlagged = g.cells[idx]!.flagged;
       setHelpBanner(null);
       clearHintFully();
       toggleFlag(g, row, col);
+      const toggled = g.cells[idx]!.flagged !== wasFlagged;
+      if (toggled) {
+        if (g.status === "won") hapticMobile("success");
+        else hapticMobile("light");
+      }
       if (g.status === "won" || g.status === "lost") stopTimer();
       forceRender();
     },
-    [stopTimer, forceRender, clearHintFully],
+    [stopTimer, forceRender, clearHintFully, hapticMobile],
   );
 
   const handleHelp = useCallback(() => {
