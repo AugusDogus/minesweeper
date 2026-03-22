@@ -16,7 +16,7 @@ import { HintRegionPreview } from "@/components/hint-region-preview.tsx";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { HINT_CLUE_A_RING, HINT_CLUE_B_RING } from "@/lib/hint-clue-rings.ts";
+import { HINT_CLUE_A_RING, HINT_CLUE_B_RING, HINT_SCOPE_SURFACE } from "@/lib/hint-clue-rings.ts";
 import { cn } from "@/lib/utils";
 
 import { type Hint, type HintRole, findHint, getHintNarrative } from "./hints.ts";
@@ -128,7 +128,7 @@ function CellButton({
         highlight === "clue" && "relative z-10 ring-2 ring-inset ring-ring",
         highlight === "clue-a" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_A_RING),
         highlight === "clue-b" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_B_RING),
-        highlight === "scope" && "relative z-10 bg-primary/15 dark:bg-primary/25",
+        highlight === "scope" && cn("relative z-10", HINT_SCOPE_SURFACE),
         highlight === "focus" &&
           "relative z-10 ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
       )}

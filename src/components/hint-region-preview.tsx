@@ -1,6 +1,6 @@
 import { Flag } from "lucide-react";
 
-import { HINT_CLUE_A_RING, HINT_CLUE_B_RING } from "@/lib/hint-clue-rings.ts";
+import { HINT_CLUE_A_RING, HINT_CLUE_B_RING, HINT_SCOPE_SURFACE } from "@/lib/hint-clue-rings.ts";
 import { cn } from "@/lib/utils";
 
 import type { Hint, HintRole } from "@/hints.ts";
@@ -80,7 +80,7 @@ function PreviewCell({ cell, highlight }: { cell: Cell; highlight?: HintRole }) 
         highlight === "clue" && "relative z-10 ring-2 ring-inset ring-ring",
         highlight === "clue-a" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_A_RING),
         highlight === "clue-b" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_B_RING),
-        highlight === "scope" && "relative z-10 bg-primary/15 dark:bg-primary/25",
+        highlight === "scope" && cn("relative z-10", HINT_SCOPE_SURFACE),
         highlight === "focus" &&
           "relative z-10 ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
       )}

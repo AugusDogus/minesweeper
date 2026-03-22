@@ -1,4 +1,4 @@
-import { HINT_CLUE_A_RING, HINT_CLUE_B_RING } from "@/lib/hint-clue-rings.ts";
+import { HINT_CLUE_A_RING, HINT_CLUE_B_RING, HINT_SCOPE_SURFACE } from "@/lib/hint-clue-rings.ts";
 import { cn } from "@/lib/utils";
 
 import type { HintNarrative } from "@/hints.ts";
@@ -61,7 +61,10 @@ export function AmberChip() {
 function ScopeChip() {
   return (
     <span
-      className="mx-0.5 inline-block size-[1.15rem] shrink-0 align-middle rounded-sm bg-primary/15 dark:bg-primary/25"
+      className={cn(
+        "mx-0.5 inline-block size-[1.15rem] shrink-0 align-middle rounded-sm",
+        HINT_SCOPE_SURFACE,
+      )}
       aria-hidden
     />
   );
