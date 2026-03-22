@@ -261,7 +261,7 @@ function StatReadout({
 }) {
   return (
     <div
-      className="inline-flex h-8 min-w-20 items-center justify-center gap-1.5 rounded-md bg-muted px-2.5 font-mono text-sm tabular-nums sm:h-7 sm:min-w-18 sm:px-2"
+      className="inline-flex min-h-11 min-w-22 items-center justify-center gap-1.5 rounded-md bg-muted px-2.5 font-mono text-sm tabular-nums sm:h-7 sm:min-h-0 sm:min-w-18 sm:px-2"
       role="status"
       aria-label={label}
     >
@@ -289,14 +289,29 @@ function ThemeToggle({
       className="shrink-0"
       aria-label="Color theme"
     >
-      <ToggleGroupItem value="system" className="px-2" title="Use device theme">
-        <Monitor className="size-3.5" />
+      <ToggleGroupItem
+        value="system"
+        className="min-h-11 min-w-11 px-2 sm:min-h-9 sm:min-w-9"
+        title="Use device theme"
+        aria-label="Use system color theme"
+      >
+        <Monitor className="size-3.5" aria-hidden />
       </ToggleGroupItem>
-      <ToggleGroupItem value="light" className="px-2" title="Light">
-        <Sun className="size-3.5" />
+      <ToggleGroupItem
+        value="light"
+        className="min-h-11 min-w-11 px-2 sm:min-h-9 sm:min-w-9"
+        title="Light"
+        aria-label="Light color theme"
+      >
+        <Sun className="size-3.5" aria-hidden />
       </ToggleGroupItem>
-      <ToggleGroupItem value="dark" className="px-2" title="Dark">
-        <Moon className="size-3.5" />
+      <ToggleGroupItem
+        value="dark"
+        className="min-h-11 min-w-11 px-2 sm:min-h-9 sm:min-w-9"
+        title="Dark"
+        aria-label="Dark color theme"
+      >
+        <Moon className="size-3.5" aria-hidden />
       </ToggleGroupItem>
     </ToggleGroup>
   );
@@ -553,7 +568,7 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex w-fit max-w-[98vw] flex-col gap-2 sm:max-w-[96vw] sm:gap-3">
+      <main className="flex w-fit max-w-[98vw] flex-col gap-2 sm:max-w-[96vw] sm:gap-3">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-lg font-semibold tracking-tight">Minesweeper</h1>
           <ThemeToggle preference={themePreference} onChange={setThemePreference} />
@@ -563,6 +578,7 @@ export default function App() {
           type="single"
           variant="outline"
           className="w-full justify-stretch"
+          aria-label="Game difficulty"
           value={currentDifficulty.id}
           onValueChange={(id) => {
             if (!id) return;
@@ -571,13 +587,17 @@ export default function App() {
           }}
         >
           {DIFFICULTIES.map((d) => (
-            <ToggleGroupItem key={d.id} value={d.id} className="min-w-0 flex-1 text-sm sm:text-xs">
+            <ToggleGroupItem
+              key={d.id}
+              value={d.id}
+              className="min-h-11 min-w-0 flex-1 text-sm sm:min-h-8 sm:text-xs"
+            >
               {d.label}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
 
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-2 sm:gap-3">
           <StatReadout icon={Flag} label={`Mines remaining: ${minesRemaining}`}>
             {String(minesRemaining).padStart(3, "0")}
           </StatReadout>
@@ -585,6 +605,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="icon"
+            className="h-11 w-11 sm:h-8 sm:w-8"
             onClick={() => resetGame(currentDifficulty)}
             aria-label="New game"
           >
@@ -602,6 +623,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="icon"
+            className="h-11 w-11 sm:h-8 sm:w-8"
             onClick={handleHelp}
             aria-label="Pattern help"
             title="Pattern help (H)"
@@ -658,7 +680,7 @@ export default function App() {
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-destructive",
                 ]
-              : "text-muted-foreground/70",
+              : "text-muted-foreground",
           )}
           aria-live="polite"
         >
@@ -682,7 +704,7 @@ export default function App() {
             </>
           )}
         </p>
-      </div>
+      </main>
     </div>
   );
 }
