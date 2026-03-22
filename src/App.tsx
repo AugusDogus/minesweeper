@@ -445,7 +445,7 @@ export default function App() {
         </div>
 
         <div
-          className="grid w-fit overflow-hidden rounded-md bg-muted/50"
+          className="mx-auto grid w-fit overflow-hidden rounded-md bg-muted/50"
           style={
             {
               gridTemplateColumns: `repeat(${game.cols}, minmax(0, 1fr))`,
