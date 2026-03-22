@@ -97,6 +97,36 @@ export function HintExplanation({ narrative }: { narrative: HintNarrative }) {
     );
   }
 
+  if (narrative.kind === "multi-clue") {
+    const { mustMine } = narrative;
+    return (
+      <div className="space-y-3">
+        <p className="leading-relaxed text-muted-foreground">
+          The <span className="font-medium text-foreground">amber outline</span> marks the hidden
+          cell you should play on. The thin{" "}
+          <span className="font-medium text-foreground">rings</span> sit on clue numbers to show
+          which clues are used—they are not pointing at a mine; they are just highlighting those
+          digits.
+        </p>
+        <p className="leading-relaxed text-muted-foreground">
+          Those clues share overlapping hidden neighbors. If you list every way to place mines in
+          that region that still satisfies{" "}
+          <span className="font-medium text-foreground">all of those clues at once</span>,{" "}
+          {mustMine ? (
+            <>
+              every valid placement puts a mine on the amber <AmberChip /> square—flag it.
+            </>
+          ) : (
+            <>
+              none of them can put a mine on the amber <AmberChip /> square—so that square must be
+              empty. Reveal it.
+            </>
+          )}
+        </p>
+      </div>
+    );
+  }
+
   const { dSmall, mSmall, dLarge, mLarge, need, nFocus, oneTwoOne, kind } = narrative;
   const isMines = kind === "subset-mines";
 

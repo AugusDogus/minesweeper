@@ -19,7 +19,14 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { HINT_CLUE_A_RING, HINT_CLUE_B_RING, HINT_SCOPE_SURFACE } from "@/lib/hint-clue-rings.ts";
 import { cn } from "@/lib/utils";
 
-import { type Hint, type HintRole, findHint, getHintNarrative } from "./hints.ts";
+import {
+  CSP_HINT_WINDOW_SIZE,
+  type Hint,
+  type HintRole,
+  findHint,
+  getCspFrontierMeta,
+  getHintNarrative,
+} from "./hints.ts";
 import { type ThemePreference, useThemePreference } from "./use-theme.ts";
 
 import {
@@ -206,6 +213,8 @@ export default function App() {
   const highlightClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const undoStackRef = useRef<GameState[]>([]);
   const redoStackRef = useRef<GameState[]>([]);
+  /** Which sliding CSP window (0-based) to search on the next hint request when the frontier is large. */
+  const cspWindowPassRef = useRef(0);
 
   const cancelHighlightClear = useCallback(() => {
     if (highlightClearTimeoutRef.current !== undefined) {
@@ -278,6 +287,7 @@ export default function App() {
       if (isRevealable(g, row, col)) pushUndoSnapshot();
       const wasPlaying = g.status === "playing";
       setHelpBanner(null);
+      cspWindowPassRef.current = 0;
       clearHintFully();
       reveal(g, row, col);
       if (!wasPlaying && g.status === "playing") startTimer();
@@ -297,6 +307,7 @@ export default function App() {
     stopTimer();
     clearHintFully();
     setHelpBanner(null);
+    cspWindowPassRef.current = 0;
     gameRef.current = snap;
     setGame(snap);
     if (snap.status === "playing" && snap.started) startTimer();
@@ -312,6 +323,7 @@ export default function App() {
     stopTimer();
     clearHintFully();
     setHelpBanner(null);
+    cspWindowPassRef.current = 0;
     gameRef.current = snap;
     setGame(snap);
     if (snap.status === "playing" && snap.started) startTimer();
@@ -322,6 +334,7 @@ export default function App() {
     (row: number, col: number) => {
       const g = gameRef.current;
       setHelpBanner(null);
+      cspWindowPassRef.current = 0;
       clearHintFully();
       toggleFlag(g, row, col);
       if (g.status === "won" || g.status === "lost") stopTimer();
@@ -349,11 +362,28 @@ export default function App() {
       );
       return;
     }
-    const h = findHint(g);
+    const pass = cspWindowPassRef.current;
+    const h = findHint(g, { cspWindowPass: pass });
     if (!h) {
+      const meta = getCspFrontierMeta(g);
+      if (meta.windowCount > 1 && pass < meta.windowCount - 1) {
+        cspWindowPassRef.current = pass + 1;
+        setHelpBanner(
+          `No logical move in search region ${pass + 1} of ${meta.windowCount}. Press H again to search the next ${CSP_HINT_WINDOW_SIZE} cells.`,
+        );
+        return;
+      }
+      cspWindowPassRef.current = 0;
+      if (meta.windowCount > 1 && pass >= meta.windowCount - 1) {
+        setHelpBanner(
+          `Searched all ${meta.windowCount} regions—still no simple logical move. Double-check flags or try a new area.`,
+        );
+        return;
+      }
       setHelpBanner("No simple logical move found—double-check flags or try a new area.");
       return;
     }
+    cspWindowPassRef.current = 0;
     setHelpBanner(null);
     cancelHighlightClear();
     setActiveHint(h);
@@ -393,6 +423,7 @@ export default function App() {
       stopTimer();
       clearHintFully();
       setHelpBanner(null);
+      cspWindowPassRef.current = 0;
       undoStackRef.current = [];
       redoStackRef.current = [];
       const g = createGame(difficulty);

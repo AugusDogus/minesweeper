@@ -149,7 +149,262 @@ const EXAMPLES: Record<string, ExampleSpec> = {
   "basic-safe": {
     rows: ["? ? ?", "· 2 ·"],
   },
+  "multi-clue": {
+    rows: ["? ? ·", "? ? ·", "· 2 ·"],
+  },
 };
+
+/** Max unknown cells per multi-clue CSP search (full component or one sliding window). */
+export const CSP_HINT_WINDOW_SIZE = 50;
+
+type ClueConstraint = {
+  readonly clueRow: number;
+  readonly clueCol: number;
+  readonly indices: readonly number[];
+  readonly k: number;
+};
+
+function indexToRC(cols: number, i: number): readonly [number, number] {
+  return [Math.floor(i / cols), i % cols];
+}
+
+/** Unknown-unflagged frontier cells, grouped by shared clues (union-find). */
+function buildFrontierComponents(state: GameState): number[][] {
+  const { rows, cols } = state;
+  const frontier = new Set<number>();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = getCell(state, r, c);
+      if (!cell.revealed || cell.isMine || cell.adjacent === 0) continue;
+      const eff = effectiveMineCount(state, r, c);
+      if (eff === null || eff < 0) continue;
+      for (const k of unknownUnflaggedNeighbors(state, r, c)) {
+        const [rr, cc] = parseKey(k);
+        frontier.add(cellIndex(cols, rr, cc));
+      }
+    }
+  }
+  if (frontier.size === 0) return [];
+
+  const parent = new Map<number, number>();
+  const find = (x: number): number => {
+    let p = parent.get(x);
+    if (p === undefined) {
+      parent.set(x, x);
+      return x;
+    }
+    if (p !== x) {
+      p = find(p);
+      parent.set(x, p);
+    }
+    return p;
+  };
+  const union = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  for (const f of frontier) parent.set(f, f);
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = getCell(state, r, c);
+      if (!cell.revealed || cell.isMine || cell.adjacent === 0) continue;
+      const unk = unknownUnflaggedNeighbors(state, r, c);
+      if (unk.size < 2) continue;
+      const arr = [...unk].map((key) => {
+        const [rr, cc] = parseKey(key);
+        return cellIndex(cols, rr, cc);
+      });
+      const a0 = arr[0]!;
+      for (let i = 1; i < arr.length; i++) union(a0, arr[i]!);
+    }
+  }
+
+  const groups = new Map<number, number[]>();
+  for (const f of frontier) {
+    const root = find(f);
+    const g = groups.get(root) ?? [];
+    g.push(f);
+    groups.set(root, g);
+  }
+  return [...groups.values()];
+}
+
+/** All unknown-unflagged frontier indices, sorted by row-major order. */
+function getSortedFrontierIndices(state: GameState): number[] {
+  const { rows, cols } = state;
+  const frontier = new Set<number>();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = getCell(state, r, c);
+      if (!cell.revealed || cell.isMine || cell.adjacent === 0) continue;
+      const eff = effectiveMineCount(state, r, c);
+      if (eff === null || eff < 0) continue;
+      for (const k of unknownUnflaggedNeighbors(state, r, c)) {
+        const [rr, cc] = parseKey(k);
+        frontier.add(cellIndex(cols, rr, cc));
+      }
+    }
+  }
+  return [...frontier].sort((a, b) => a - b);
+}
+
+/** How many sliding windows of size {@link CSP_HINT_WINDOW_SIZE} cover the frontier (0 if empty). */
+export function getCspFrontierMeta(state: GameState): {
+  frontierSize: number;
+  windowCount: number;
+} {
+  if (state.status !== "playing") return { frontierSize: 0, windowCount: 0 };
+  const sorted = getSortedFrontierIndices(state);
+  const n = sorted.length;
+  if (n === 0) return { frontierSize: 0, windowCount: 0 };
+  return { frontierSize: n, windowCount: Math.ceil(n / CSP_HINT_WINDOW_SIZE) };
+}
+
+function collectClueConstraintsForComponent(state: GameState, comp: Set<number>): ClueConstraint[] {
+  const { rows, cols } = state;
+  const out: ClueConstraint[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = getCell(state, r, c);
+      if (!cell.revealed || cell.isMine || cell.adjacent === 0) continue;
+      const eff = effectiveMineCount(state, r, c);
+      if (eff === null || eff < 0) continue;
+      const unk = unknownUnflaggedNeighbors(state, r, c);
+      if (unk.size === 0) continue;
+      const idxs: number[] = [];
+      for (const k of unk) {
+        const [rr, cc] = parseKey(k);
+        const i = cellIndex(cols, rr, cc);
+        idxs.push(i);
+      }
+      if (!idxs.every((i) => comp.has(i))) continue;
+      out.push({ clueRow: r, clueCol: c, indices: idxs, k: eff });
+    }
+  }
+  return out;
+}
+
+function partialConsistent(
+  constraints: readonly ClueConstraint[],
+  assignment: Map<number, 0 | 1>,
+): boolean {
+  for (const { indices, k } of constraints) {
+    let assigned = 0;
+    let unassigned = 0;
+    for (const i of indices) {
+      const v = assignment.get(i);
+      if (v === undefined) unassigned++;
+      else assigned += v;
+    }
+    if (assigned > k) return false;
+    if (assigned + unassigned < k) return false;
+  }
+  return true;
+}
+
+function hasAssignmentSolution(
+  vars: readonly number[],
+  constraints: readonly ClueConstraint[],
+  assignment: Map<number, 0 | 1>,
+): boolean {
+  if (!partialConsistent(constraints, assignment)) return false;
+  const unassigned = vars.filter((v) => !assignment.has(v));
+  if (unassigned.length === 0) {
+    for (const { indices, k } of constraints) {
+      let sum = 0;
+      for (const i of indices) sum += assignment.get(i)!;
+      if (sum !== k) return false;
+    }
+    return true;
+  }
+  const v = unassigned[0]!;
+  assignment.set(v, 0);
+  if (hasAssignmentSolution(vars, constraints, assignment)) {
+    assignment.delete(v);
+    return true;
+  }
+  assignment.delete(v);
+  assignment.set(v, 1);
+  if (hasAssignmentSolution(vars, constraints, assignment)) {
+    assignment.delete(v);
+    return true;
+  }
+  assignment.delete(v);
+  return false;
+}
+
+function tryForcedHintFromConstraints(
+  state: GameState,
+  constraints: ClueConstraint[],
+): Hint | null {
+  if (constraints.length === 0) return null;
+  const { cols } = state;
+  const varSet = new Set<number>();
+  for (const c of constraints) {
+    for (const i of c.indices) varSet.add(i);
+  }
+  const vars = [...varSet].sort((a, b) => a - b);
+  const sortedVars = [...vars].sort((a, b) => {
+    const da = constraints.reduce((n, c) => n + (c.indices.includes(a) ? 1 : 0), 0);
+    const db = constraints.reduce((n, c) => n + (c.indices.includes(b) ? 1 : 0), 0);
+    return db - da || a - b;
+  });
+
+  for (const idx of sortedVars) {
+    const m0 = new Map<number, 0 | 1>();
+    m0.set(idx, 0);
+    const can0 = hasAssignmentSolution(sortedVars, constraints, m0);
+    const m1 = new Map<number, 0 | 1>();
+    m1.set(idx, 1);
+    const can1 = hasAssignmentSolution(sortedVars, constraints, m1);
+
+    if (can0 && can1) continue;
+    if (!can0 && !can1) continue;
+
+    const mustMine = !can0 && can1;
+    const [fr, fc] = indexToRC(cols, idx);
+    const cells: HintCell[] = [];
+    for (const con of constraints) {
+      cells.push({ row: con.clueRow, col: con.clueCol, role: "clue" });
+    }
+    cells.push({ row: fr, col: fc, role: "focus" });
+
+    const patternId = mustMine ? "multi-clue-mines" : "multi-clue-safe";
+    return {
+      patternId,
+      title: mustMine ? "Multiple clues (must be mines)" : "Multiple clues (must be safe)",
+      body: "Several clues constrain the same overlapping region. Together they leave only one possibility for this cell—flag it or reveal it accordingly.",
+      cells: mergeHintCells(cells),
+      example: EXAMPLES["multi-clue"]!,
+    };
+  }
+  return null;
+}
+
+function findMultiClueHint(state: GameState, cspWindowPass: number): Hint | null {
+  const components = buildFrontierComponents(state);
+  for (const compArr of components) {
+    if (compArr.length === 0 || compArr.length > CSP_HINT_WINDOW_SIZE) continue;
+    const comp = new Set(compArr);
+    const constraints = collectClueConstraintsForComponent(state, comp);
+    const h = tryForcedHintFromConstraints(state, constraints);
+    if (h) return h;
+  }
+
+  const sortedFrontier = getSortedFrontierIndices(state);
+  if (sortedFrontier.length <= CSP_HINT_WINDOW_SIZE) return null;
+
+  const numWindows = Math.ceil(sortedFrontier.length / CSP_HINT_WINDOW_SIZE);
+  const k = ((cspWindowPass % numWindows) + numWindows) % numWindows;
+  const W = new Set(
+    sortedFrontier.slice(k * CSP_HINT_WINDOW_SIZE, k * CSP_HINT_WINDOW_SIZE + CSP_HINT_WINDOW_SIZE),
+  );
+  const constraints = collectClueConstraintsForComponent(state, W);
+  return tryForcedHintFromConstraints(state, constraints);
+}
 
 function subsetHintBody(allMines: boolean): string {
   if (allMines) {
@@ -373,13 +628,25 @@ function findSingleClueHint(state: GameState): Hint | null {
   return null;
 }
 
-export function findHint(state: GameState): Hint | null {
+export type FindHintOptions = {
+  /**
+   * Which sliding window of the frontier to search for multi-clue CSP (0-based).
+   * Only matters when the frontier has more than {@link CSP_HINT_WINDOW_SIZE} cells.
+   */
+  readonly cspWindowPass?: number;
+};
+
+export function findHint(state: GameState, options?: FindHintOptions): Hint | null {
   if (state.status !== "playing") return null;
 
   const single = findSingleClueHint(state);
   if (single) return single;
 
-  return findPairwiseSubsetHint(state);
+  const pair = findPairwiseSubsetHint(state);
+  if (pair) return pair;
+
+  const pass = options?.cspWindowPass ?? 0;
+  return findMultiClueHint(state, pass);
 }
 
 export type HintNarrative =
@@ -396,6 +663,7 @@ export type HintNarrative =
       nFocus: number;
       oneTwoOne: boolean;
     }
+  | { kind: "multi-clue"; title: string; mustMine: boolean }
   | { kind: "fallback"; title: string; body: string };
 
 export function getHintNarrative(state: GameState, hint: Hint): HintNarrative {
@@ -478,6 +746,17 @@ export function getHintNarrative(state: GameState, hint: Hint): HintNarrative {
       };
     }
     return { kind: "fallback", title: hint.title, body: hint.body };
+  }
+
+  if (hint.patternId === "multi-clue-mines" || hint.patternId === "multi-clue-safe") {
+    return {
+      kind: "multi-clue",
+      title:
+        hint.patternId === "multi-clue-mines"
+          ? "Multiple clues — this cell must be a mine"
+          : "Multiple clues — this cell must be safe",
+      mustMine: hint.patternId === "multi-clue-mines",
+    };
   }
 
   return { kind: "fallback", title: hint.title, body: hint.body };
