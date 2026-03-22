@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 import type { Hint, HintRole } from "@/hints.ts";
 
-import type { Cell, GameState } from "@/game.ts";
+import type { Cell, GameState, LocalFlagContradiction } from "@/game.ts";
 
 const NUMBER_COLORS: Record<number, string> = {
   1: "text-[var(--n1)]",
@@ -83,10 +83,80 @@ function PreviewCell({ cell, highlight }: { cell: Cell; highlight?: HintRole }) 
         highlight === "scope" && cn("relative z-10", HINT_SCOPE_SURFACE),
         highlight === "focus" &&
           "relative z-10 ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
+        highlight === "error-clue" &&
+          "relative z-10 ring-2 ring-inset ring-destructive ring-offset-0",
+        highlight === "error-near" &&
+          "relative z-10 ring-2 ring-inset ring-amber-500/90 dark:ring-amber-400/90",
       )}
       aria-hidden
     >
       {content}
+    </div>
+  );
+}
+
+function contradictionBounds(
+  highlightCells: LocalFlagContradiction["highlightCells"],
+  rows: number,
+  cols: number,
+) {
+  let r0 = Infinity;
+  let r1 = -Infinity;
+  let c0 = Infinity;
+  let c1 = -Infinity;
+  for (const h of highlightCells) {
+    r0 = Math.min(r0, h.row);
+    r1 = Math.max(r1, h.row);
+    c0 = Math.min(c0, h.col);
+    c1 = Math.max(c1, h.col);
+  }
+  const pad = 1;
+  r0 = Math.max(0, r0 - pad);
+  c0 = Math.max(0, c0 - pad);
+  r1 = Math.min(rows - 1, r1 + pad);
+  c1 = Math.min(cols - 1, c1 + pad);
+  return { r0, c0, r1, c1 };
+}
+
+export function FlagContradictionPreview({
+  game,
+  contradiction,
+}: {
+  game: GameState;
+  contradiction: LocalFlagContradiction;
+}) {
+  const { r0, c0, r1, c1 } = contradictionBounds(
+    contradiction.highlightCells,
+    game.rows,
+    game.cols,
+  );
+  const roleByKey = new Map<string, HintRole>();
+  for (const h of contradiction.highlightCells) {
+    roleByKey.set(`${h.row},${h.col}`, h.role);
+  }
+  const h = r1 - r0 + 1;
+  const w = c1 - c0 + 1;
+
+  const cells = [];
+  for (let row = r0; row <= r1; row++) {
+    for (let col = c0; col <= c1; col++) {
+      const cell = cellAt(game, row, col);
+      const highlight = roleByKey.get(`${row},${col}`);
+      cells.push(<PreviewCell key={`${row}-${col}`} cell={cell} highlight={highlight} />);
+    }
+  }
+
+  return (
+    <div
+      className="grid w-fit overflow-hidden rounded-md border border-destructive/25 bg-muted/50"
+      style={{
+        gridTemplateColumns: `repeat(${w}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${h}, minmax(0, 1fr))`,
+        width: `min(100%, ${w * 28}px)`,
+      }}
+      aria-hidden
+    >
+      {cells}
     </div>
   );
 }

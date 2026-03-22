@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 import { HintExplanation } from "@/components/hint-explanation.tsx";
-import { HintRegionPreview } from "@/components/hint-region-preview.tsx";
+import { FlagContradictionPreview, HintRegionPreview } from "@/components/hint-region-preview.tsx";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -30,7 +30,8 @@ import {
   cloneGameState,
   createGame,
   NO_FORCED_MOVE_HINT,
-  describeLocalFlagContradictions,
+  type LocalFlagContradiction,
+  getLocalFlagContradiction,
   flagCount,
   isRevealable,
   reveal,
@@ -243,6 +244,10 @@ function CellButton({
         highlight === "scope" && cn("relative z-10", HINT_SCOPE_SURFACE),
         highlight === "focus" &&
           "relative z-10 ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
+        highlight === "error-clue" &&
+          "relative z-10 ring-2 ring-inset ring-destructive ring-offset-0",
+        highlight === "error-near" &&
+          "relative z-10 ring-2 ring-inset ring-amber-500/90 dark:ring-amber-400/90",
       )}
     >
       {content}
@@ -326,6 +331,7 @@ export default function App() {
   gameRef.current = game;
 
   const [activeHint, setActiveHint] = useState<Hint | null>(null);
+  const [flagContradiction, setFlagContradiction] = useState<LocalFlagContradiction | null>(null);
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
   const [helpBanner, setHelpBanner] = useState<string | null>(null);
   const activeHintRef = useRef<Hint | null>(null);
@@ -345,6 +351,7 @@ export default function App() {
     cancelHighlightClear();
     highlightClearTimeoutRef.current = setTimeout(() => {
       setActiveHint(null);
+      setFlagContradiction(null);
       highlightClearTimeoutRef.current = undefined;
     }, 3000);
   }, [cancelHighlightClear]);
@@ -352,6 +359,7 @@ export default function App() {
   const clearHintFully = useCallback(() => {
     cancelHighlightClear();
     setActiveHint(null);
+    setFlagContradiction(null);
     setHelpDialogOpen(false);
   }, [cancelHighlightClear]);
 
@@ -364,12 +372,17 @@ export default function App() {
 
   const highlightByKey = useMemo(() => {
     const m = new Map<string, HintRole>();
-    if (!activeHint) return m;
-    for (const c of activeHint.cells) {
-      m.set(`${c.row},${c.col}`, c.role);
+    if (activeHint) {
+      for (const c of activeHint.cells) {
+        m.set(`${c.row},${c.col}`, c.role);
+      }
+    } else if (flagContradiction) {
+      for (const h of flagContradiction.highlightCells) {
+        m.set(`${h.row},${h.col}`, h.role);
+      }
     }
     return m;
-  }, [activeHint]);
+  }, [activeHint, flagContradiction]);
 
   const hintNarrative = activeHint ? getHintNarrative(game, activeHint) : null;
 
@@ -476,9 +489,13 @@ export default function App() {
       );
       return;
     }
-    const flagIssue = describeLocalFlagContradictions(g);
+    const flagIssue = getLocalFlagContradiction(g);
     if (flagIssue) {
-      setHelpBanner(flagIssue);
+      setHelpBanner(null);
+      cancelHighlightClear();
+      setActiveHint(null);
+      setFlagContradiction(flagIssue);
+      setHelpDialogOpen(true);
       return;
     }
     const h = findHint(g);
@@ -490,6 +507,7 @@ export default function App() {
     }
     setHelpBanner(null);
     cancelHighlightClear();
+    setFlagContradiction(null);
     setActiveHint(h);
     setHelpDialogOpen(true);
   }, [helpDialogOpen, dismissHintDialog, cancelHighlightClear]);
@@ -562,6 +580,22 @@ export default function App() {
               <div className="flex flex-col gap-3">
                 <HintRegionPreview game={game} hint={activeHint} />
                 <HintExplanation narrative={hintNarrative} />
+              </div>
+            </>
+          ) : flagContradiction ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {flagContradiction.kind === "too_many_flags"
+                    ? "Flag count mismatch"
+                    : "Hidden squares mismatch"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-3">
+                <FlagContradictionPreview game={game} contradiction={flagContradiction} />
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {flagContradiction.message}
+                </p>
               </div>
             </>
           ) : null}

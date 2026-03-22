@@ -1,6 +1,13 @@
 import type { Cell, GameState } from "./game.ts";
 
-export type HintRole = "clue" | "clue-a" | "clue-b" | "scope" | "focus";
+export type HintRole =
+  | "clue"
+  | "clue-a"
+  | "clue-b"
+  | "scope"
+  | "focus"
+  | "error-clue"
+  | "error-near";
 
 export function isClueRole(role: HintRole): role is "clue" | "clue-a" | "clue-b" {
   return role === "clue" || role === "clue-a" || role === "clue-b";
@@ -124,6 +131,8 @@ function mergeHintCells(entries: Iterable<HintCell>): HintCell[] {
     "clue-b": 3,
     focus: 2,
     scope: 1,
+    "error-clue": 0,
+    "error-near": 0,
   };
   for (const h of entries) {
     const k = key(h.row, h.col);

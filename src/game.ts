@@ -175,12 +175,51 @@ export function flagCount(state: GameState): number {
   return state.cells.reduce((n, c) => n + (c.flagged ? 1 : 0), 0);
 }
 
+export type FlagContradictionKind = "too_many_flags" | "not_enough_hidden";
+
+export type FlagContradictionHighlightCell = {
+  readonly row: number;
+  readonly col: number;
+  readonly role: "error-clue" | "error-near";
+};
+
+export type LocalFlagContradiction = {
+  readonly kind: FlagContradictionKind;
+  readonly clueRow: number;
+  readonly clueCol: number;
+  readonly adjacent: number;
+  readonly message: string;
+  readonly highlightCells: readonly FlagContradictionHighlightCell[];
+};
+
+function buildFlagContradictionHighlights(
+  rows: number,
+  cols: number,
+  at: (r: number, c: number) => Cell,
+  clueRow: number,
+  clueCol: number,
+  kind: FlagContradictionKind,
+): FlagContradictionHighlightCell[] {
+  const list: FlagContradictionHighlightCell[] = [
+    { row: clueRow, col: clueCol, role: "error-clue" },
+  ];
+  for (const [nr, nc] of neighbors(rows, cols, clueRow, clueCol)) {
+    const n = at(nr, nc);
+    if (kind === "too_many_flags") {
+      if (n.flagged) list.push({ row: nr, col: nc, role: "error-near" });
+    } else if (!n.revealed && !n.flagged) {
+      list.push({ row: nr, col: nc, role: "error-near" });
+    }
+  }
+  return list;
+}
+
 /**
  * If the player's flags contradict any revealed clue (too many flags, or not enough hidden
- * neighbors left for the mines still required), returns a short message pointing at one problem.
+ * neighbors left for the mines still required), returns structured data for UI highlighting.
  * Does not validate flags against the hidden mine layout—only local clue arithmetic.
  */
-export function describeLocalFlagContradictions(state: GameState): string | null {
+export function getLocalFlagContradiction(state: GameState): LocalFlagContradiction | null {
   if (state.status !== "playing") return null;
   const { rows, cols, cells } = state;
   const at = (r: number, c: number) => cells[r * cols + c]!;
@@ -199,24 +238,55 @@ export function describeLocalFlagContradictions(state: GameState): string | null
       }
 
       const remaining = cell.adjacent - flagged;
-      const rc = `${r + 1}, ${c + 1}`;
 
       if (remaining < 0) {
-        return (
-          `Too many flags next to a clue showing ${cell.adjacent} (at row ${rc}). ` +
-          `Remove a flag touching that number.`
+        const highlightCells = buildFlagContradictionHighlights(
+          rows,
+          cols,
+          at,
+          r,
+          c,
+          "too_many_flags",
         );
+        return {
+          kind: "too_many_flags",
+          clueRow: r,
+          clueCol: c,
+          adjacent: cell.adjacent,
+          message: `Too many flags next to this ${cell.adjacent}. Remove at least one flag touching the highlighted number until the counts match.`,
+          highlightCells,
+        };
       }
       if (remaining > hiddenUnflagged) {
-        return `A clue showing ${cell.adjacent} (at row ${rc}) still needs ${remaining} more mine${
-          remaining === 1 ? "" : "s"
-        } among hidden neighbors, but only ${hiddenUnflagged} hidden square${
-          hiddenUnflagged === 1 ? "" : "s"
-        } remain—check flags around that clue.`;
+        const highlightCells = buildFlagContradictionHighlights(
+          rows,
+          cols,
+          at,
+          r,
+          c,
+          "not_enough_hidden",
+        );
+        return {
+          kind: "not_enough_hidden",
+          clueRow: r,
+          clueCol: c,
+          adjacent: cell.adjacent,
+          message: `This ${cell.adjacent} still needs ${remaining} more mine${
+            remaining === 1 ? "" : "s"
+          } among hidden neighbors, but only ${hiddenUnflagged} hidden square${
+            hiddenUnflagged === 1 ? "" : "s"
+          } remain—check flags around the highlighted clue.`,
+          highlightCells,
+        };
       }
     }
   }
   return null;
+}
+
+/** Returns only the message string; use getLocalFlagContradiction when you need highlight cells. */
+export function describeLocalFlagContradictions(state: GameState): string | null {
+  return getLocalFlagContradiction(state)?.message ?? null;
 }
 
 /** Shown when the hint engine finds no forced move but clues and flags agree locally. */
