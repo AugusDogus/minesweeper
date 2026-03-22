@@ -61,6 +61,23 @@ function shuffleInPlace<T>(arr: T[]): void {
   }
 }
 
+/** Deep clone for undo snapshots (cells are mutable during play). */
+export function cloneGameState(state: GameState): GameState {
+  return {
+    ...state,
+    cells: state.cells.map((c) => ({ ...c })),
+  };
+}
+
+/** Whether a left-click reveal would change state (not a no-op). */
+export function isRevealable(state: GameState, row: number, col: number): boolean {
+  if (state.status === "won" || state.status === "lost") return false;
+  if (row < 0 || row >= state.rows || col < 0 || col >= state.cols) return false;
+  const cell = state.cells[index(state.cols, row, col)]!;
+  if (cell.flagged || cell.revealed) return false;
+  return true;
+}
+
 export function createGame(difficulty: Difficulty): GameState {
   const { rows, cols, mines } = difficulty;
   const cells: Cell[] = Array.from({ length: rows * cols }, () => ({

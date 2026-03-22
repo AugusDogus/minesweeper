@@ -27,8 +27,10 @@ import {
   type Difficulty,
   DIFFICULTIES,
   type GameState,
+  cloneGameState,
   createGame,
   flagCount,
+  isRevealable,
   reveal,
   tickTimer,
   toggleFlag,
@@ -202,6 +204,8 @@ export default function App() {
   const activeHintRef = useRef<Hint | null>(null);
   activeHintRef.current = activeHint;
   const highlightClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const undoStackRef = useRef<GameState[]>([]);
+  const redoStackRef = useRef<GameState[]>([]);
 
   const cancelHighlightClear = useCallback(() => {
     if (highlightClearTimeoutRef.current !== undefined) {
@@ -261,9 +265,17 @@ export default function App() {
 
   useEffect(() => stopTimer, [stopTimer]);
 
+  const pushUndoSnapshot = useCallback(() => {
+    const g = gameRef.current;
+    const stack = undoStackRef.current;
+    stack.push(cloneGameState(g));
+    redoStackRef.current = [];
+  }, []);
+
   const handleReveal = useCallback(
     (row: number, col: number) => {
       const g = gameRef.current;
+      if (isRevealable(g, row, col)) pushUndoSnapshot();
       const wasPlaying = g.status === "playing";
       setHelpBanner(null);
       clearHintFully();
@@ -272,8 +284,39 @@ export default function App() {
       if (g.status === "won" || g.status === "lost") stopTimer();
       forceRender();
     },
-    [startTimer, stopTimer, forceRender, clearHintFully],
+    [startTimer, stopTimer, forceRender, clearHintFully, pushUndoSnapshot],
   );
+
+  const handleUndoReveal = useCallback(() => {
+    const stack = undoStackRef.current;
+    const snap = stack.pop();
+    if (!snap) return;
+    const cur = gameRef.current;
+    const redo = redoStackRef.current;
+    redo.push(cloneGameState(cur));
+    stopTimer();
+    clearHintFully();
+    setHelpBanner(null);
+    gameRef.current = snap;
+    setGame(snap);
+    if (snap.status === "playing" && snap.started) startTimer();
+    forceRender();
+  }, [stopTimer, clearHintFully, startTimer, forceRender]);
+
+  const handleRedoReveal = useCallback(() => {
+    const stack = redoStackRef.current;
+    const snap = stack.pop();
+    if (!snap) return;
+    const undo = undoStackRef.current;
+    undo.push(cloneGameState(gameRef.current));
+    stopTimer();
+    clearHintFully();
+    setHelpBanner(null);
+    gameRef.current = snap;
+    setGame(snap);
+    if (snap.status === "playing" && snap.started) startTimer();
+    forceRender();
+  }, [stopTimer, clearHintFully, startTimer, forceRender]);
 
   const handleFlag = useCallback(
     (row: number, col: number) => {
@@ -319,29 +362,39 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target;
+      const inEditable =
+        (t instanceof HTMLElement && t.isContentEditable) ||
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        if (inEditable) return;
+        e.preventDefault();
+        if (e.shiftKey) handleRedoReveal();
+        else handleUndoReveal();
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (k !== "h") return;
-      const t = e.target;
-      if (t instanceof HTMLElement && t.isContentEditable) return;
-      if (
-        t instanceof HTMLInputElement ||
-        t instanceof HTMLTextAreaElement ||
-        t instanceof HTMLSelectElement
-      )
-        return;
+      if (inEditable) return;
       e.preventDefault();
       handleHelp();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleHelp]);
+  }, [handleHelp, handleUndoReveal, handleRedoReveal]);
 
   const resetGame = useCallback(
     (difficulty: Difficulty) => {
       stopTimer();
       clearHintFully();
       setHelpBanner(null);
+      undoStackRef.current = [];
+      redoStackRef.current = [];
       const g = createGame(difficulty);
       setGame(g);
       gameRef.current = g;
@@ -495,7 +548,7 @@ export default function App() {
               : "Boom! Better luck next time."
             : helpBanner
               ? helpBanner
-              : "Click to reveal \u00b7 Right-click to flag \u00b7 Pattern help (H toggles) \u00b7 First click is always safe"}
+              : "Click to reveal \u00b7 Right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Pattern help (H toggles) \u00b7 First click is always safe"}
         </p>
       </div>
     </div>
