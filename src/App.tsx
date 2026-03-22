@@ -190,12 +190,12 @@ function CellButton({
   let content: React.ReactNode = null;
   if (cell.flagged && !gameOver)
     content = (
-      <Flag className="size-[0.7em] shrink-0 text-destructive" strokeWidth={2.25} aria-hidden />
+      <Flag className="size-[0.85em] shrink-0 text-destructive" strokeWidth={2.25} aria-hidden />
     );
   else if (cell.revealed && cell.isMine)
     content = (
       <span
-        className="size-[0.5em] min-h-[0.5em] min-w-[0.5em] shrink-0 rounded-full bg-destructive"
+        className="size-[0.6em] min-h-[0.6em] min-w-[0.6em] shrink-0 rounded-full bg-destructive"
         aria-hidden
       />
     );
@@ -220,7 +220,7 @@ function CellButton({
       onContextMenu={handleContextMenu}
       aria-label={`Cell row ${row + 1} column ${col + 1}`}
       className={cn(
-        "grid size-full min-h-0 min-w-0 place-items-center p-0 text-[clamp(0.6rem,2.5vw,0.85rem)] font-bold leading-none select-none touch-manipulation [-webkit-touch-callout:none]",
+        "grid size-full min-h-0 min-w-0 place-items-center p-0 text-[clamp(0.7rem,3.2vw,0.95rem)] font-bold leading-none select-none touch-manipulation [-webkit-touch-callout:none]",
         "transition-transform duration-100 ease-out",
         cell.revealed
           ? [
@@ -261,11 +261,11 @@ function StatReadout({
 }) {
   return (
     <div
-      className="inline-flex h-7 min-w-18 items-center justify-center gap-1.5 rounded-md bg-muted px-2 font-mono text-sm tabular-nums"
+      className="inline-flex h-8 min-w-20 items-center justify-center gap-1.5 rounded-md bg-muted px-2.5 font-mono text-sm tabular-nums sm:h-7 sm:min-w-18 sm:px-2"
       role="status"
       aria-label={label}
     >
-      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <Icon className="size-4 shrink-0 text-muted-foreground sm:size-3.5" aria-hidden />
       {children}
     </div>
   );
@@ -531,7 +531,7 @@ export default function App() {
   const gameOver = game.status === "won" || game.status === "lost";
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-4">
+    <div className="flex min-h-svh items-center justify-center p-2 sm:p-4">
       <Dialog
         open={helpDialogOpen}
         onOpenChange={(open) => {
@@ -553,7 +553,7 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex w-fit max-w-[96vw] flex-col gap-3">
+      <div className="flex w-fit max-w-[98vw] flex-col gap-2 sm:max-w-[96vw] sm:gap-3">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-lg font-semibold tracking-tight">Minesweeper</h1>
           <ThemeToggle preference={themePreference} onChange={setThemePreference} />
@@ -571,7 +571,7 @@ export default function App() {
           }}
         >
           {DIFFICULTIES.map((d) => (
-            <ToggleGroupItem key={d.id} value={d.id} className="min-w-0 flex-1 text-xs">
+            <ToggleGroupItem key={d.id} value={d.id} className="min-w-0 flex-1 text-sm sm:text-xs">
               {d.label}
             </ToggleGroupItem>
           ))}
@@ -584,7 +584,7 @@ export default function App() {
 
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             onClick={() => resetGame(currentDifficulty)}
             aria-label="New game"
           >
@@ -601,7 +601,7 @@ export default function App() {
 
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             onClick={handleHelp}
             aria-label="Pattern help"
             title="Pattern help (H)"
@@ -623,7 +623,7 @@ export default function App() {
             {
               gridTemplateColumns: `repeat(${game.cols}, minmax(0, 1fr))`,
               gridTemplateRows: `repeat(${game.rows}, minmax(0, 1fr))`,
-              width: `min(88vw, ${game.cols * 28 + 8}px)`,
+              width: `min(95vw, ${game.cols * 28 + 8}px)`,
               aspectRatio: `${game.cols} / ${game.rows}`,
             } as React.CSSProperties
           }
@@ -662,13 +662,25 @@ export default function App() {
           )}
           aria-live="polite"
         >
-          {gameOver
-            ? game.status === "won"
-              ? "You cleared the field!"
-              : "Boom! Better luck next time."
-            : helpBanner
-              ? helpBanner
-              : "Tap to reveal \u00b7 Long-press or right-click to flag \u00b7 Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) \u00b7 Pattern help (H) — derive moves from clues \u00b7 First tap is always safe"}
+          {gameOver ? (
+            game.status === "won" ? (
+              "You cleared the field!"
+            ) : (
+              "Boom! Better luck next time."
+            )
+          ) : helpBanner ? (
+            helpBanner
+          ) : (
+            <>
+              <span className="sm:hidden">
+                Tap to reveal · Long-press to flag · First tap is always safe
+              </span>
+              <span className="hidden sm:inline">
+                Click to reveal · Right-click to flag · Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) ·
+                Pattern help (H) · First tap is always safe
+              </span>
+            </>
+          )}
         </p>
       </div>
     </div>
