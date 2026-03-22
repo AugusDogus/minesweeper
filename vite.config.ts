@@ -30,8 +30,7 @@ export default defineConfig({
       manifest: {
         name: "Minesweeper",
         short_name: "Minesweeper",
-        description:
-          "Play Minesweeper in the browser with hints, undo/redo, multiple difficulties, and a clean accessible UI.",
+        description: "Guessing wrong, instant regret simulator",
         theme_color: "#fafafa",
         background_color: "#fafafa",
         display: "standalone",
