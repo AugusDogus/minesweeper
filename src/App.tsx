@@ -34,8 +34,10 @@ import {
   type Difficulty,
   DIFFICULTIES,
   type GameState,
+  NO_FORCED_MOVE_HINT,
   cloneGameState,
   createGame,
+  describeLocalFlagContradictions,
   flagCount,
   isRevealable,
   reveal,
@@ -362,6 +364,12 @@ export default function App() {
       );
       return;
     }
+    const flagIssue = describeLocalFlagContradictions(g);
+    if (flagIssue) {
+      cspWindowPassRef.current = 0;
+      setHelpBanner(flagIssue);
+      return;
+    }
     const pass = cspWindowPassRef.current;
     const h = findHint(g, { cspWindowPass: pass });
     if (!h) {
@@ -376,11 +384,11 @@ export default function App() {
       cspWindowPassRef.current = 0;
       if (meta.windowCount > 1 && pass >= meta.windowCount - 1) {
         setHelpBanner(
-          `Searched all ${meta.windowCount} regions—still no simple logical move. Double-check flags or try a new area.`,
+          `Searched all ${meta.windowCount} regions—still no simple logical move. ${NO_FORCED_MOVE_HINT}`,
         );
         return;
       }
-      setHelpBanner("No simple logical move found—double-check flags or try a new area.");
+      setHelpBanner(`No simple logical move found. ${NO_FORCED_MOVE_HINT}`);
       return;
     }
     cspWindowPassRef.current = 0;

@@ -1,5 +1,17 @@
 import { expect, test } from "vite-plus/test";
-import { cloneGameState, createGame, DIFFICULTIES, isRevealable, reveal } from "./game.ts";
+import type { Cell, GameState } from "./game.ts";
+import {
+  cloneGameState,
+  createGame,
+  describeLocalFlagContradictions,
+  DIFFICULTIES,
+  isRevealable,
+  reveal,
+} from "./game.ts";
+
+function emptyCell(): Cell {
+  return { isMine: false, adjacent: 0, revealed: false, flagged: false };
+}
 
 test("first reveal places mines and plays", () => {
   const g = createGame(DIFFICULTIES[0]!);
@@ -22,4 +34,44 @@ test("isRevealable matches reveal no-op rules", () => {
   expect(isRevealable(g, 0, 0)).toBe(true);
   reveal(g, 0, 0);
   expect(isRevealable(g, 0, 0)).toBe(false);
+});
+
+test("describeLocalFlagContradictions detects too many flags next to a clue", () => {
+  const cells: Cell[] = Array.from({ length: 9 }, () => emptyCell());
+  cells[4] = { isMine: false, adjacent: 1, revealed: true, flagged: false };
+  cells[0] = { ...emptyCell(), flagged: true };
+  cells[1] = { ...emptyCell(), flagged: true };
+  const g: GameState = {
+    rows: 3,
+    cols: 3,
+    mineTotal: 1,
+    cells,
+    status: "playing",
+    started: true,
+    elapsedSeconds: 0,
+  };
+  const msg = describeLocalFlagContradictions(g);
+  expect(msg).not.toBeNull();
+  expect(msg).toContain("Too many flags");
+});
+
+test("describeLocalFlagContradictions detects not enough hidden neighbors for remaining mines", () => {
+  const cells: Cell[] = Array.from({ length: 9 }, () => emptyCell());
+  // Corner clue 3 with only one hidden neighbor left (two neighbors revealed empty).
+  cells[0] = { isMine: false, adjacent: 3, revealed: true, flagged: false };
+  cells[1] = { isMine: false, adjacent: 0, revealed: true, flagged: false };
+  cells[3] = { isMine: false, adjacent: 0, revealed: true, flagged: false };
+  // (1,1) index 4 is sole hidden neighbor of (0,0)
+  const g: GameState = {
+    rows: 3,
+    cols: 3,
+    mineTotal: 1,
+    cells,
+    status: "playing",
+    started: true,
+    elapsedSeconds: 0,
+  };
+  const msg = describeLocalFlagContradictions(g);
+  expect(msg).not.toBeNull();
+  expect(msg).toContain("still needs");
 });

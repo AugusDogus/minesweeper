@@ -175,6 +175,54 @@ export function flagCount(state: GameState): number {
   return state.cells.reduce((n, c) => n + (c.flagged ? 1 : 0), 0);
 }
 
+/**
+ * If the player's flags contradict any revealed clue (too many flags, or not enough hidden
+ * neighbors left for the mines still required), returns a short message pointing at one problem.
+ * Does not validate flags against the hidden mine layout—only local clue arithmetic.
+ */
+export function describeLocalFlagContradictions(state: GameState): string | null {
+  if (state.status !== "playing") return null;
+  const { rows, cols, cells } = state;
+  const at = (r: number, c: number) => cells[r * cols + c]!;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = at(r, c);
+      if (!cell.revealed || cell.isMine || cell.adjacent === 0) continue;
+
+      let flagged = 0;
+      let hiddenUnflagged = 0;
+      for (const [nr, nc] of neighbors(rows, cols, r, c)) {
+        const n = at(nr, nc);
+        if (n.flagged) flagged++;
+        else if (!n.revealed) hiddenUnflagged++;
+      }
+
+      const remaining = cell.adjacent - flagged;
+      const rc = `${r + 1}, ${c + 1}`;
+
+      if (remaining < 0) {
+        return (
+          `Too many flags next to a clue showing ${cell.adjacent} (at row ${rc}). ` +
+          `Remove a flag touching that number.`
+        );
+      }
+      if (remaining > hiddenUnflagged) {
+        return `A clue showing ${cell.adjacent} (at row ${rc}) still needs ${remaining} more mine${
+          remaining === 1 ? "" : "s"
+        } among hidden neighbors, but only ${hiddenUnflagged} hidden square${
+          hiddenUnflagged === 1 ? "" : "s"
+        } remain—check flags around that clue.`;
+      }
+    }
+  }
+  return null;
+}
+
+/** Shown when the hint engine finds no forced move but clues and flags agree locally. */
+export const NO_FORCED_MOVE_HINT =
+  "When no clue forces the next step, guessing is normal—try another edge or a low-risk square.";
+
 export function tickTimer(state: GameState, deltaSeconds: number): void {
   if (state.status !== "playing") return;
   state.elapsedSeconds += deltaSeconds;
