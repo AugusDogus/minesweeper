@@ -93,7 +93,11 @@ export function useBoardGestures({
       const py = clientY - rect.top;
       const contentX = (px - tx) / scale;
       const contentY = (py - ty) / scale;
-      const nextScale = clamp(targetScale, fitScaleRef.current, maxScale);
+      const nextScale = clamp(
+        targetScale,
+        fitScaleRef.current,
+        Math.max(maxScale, fitScaleRef.current),
+      );
       const rawTx = px - contentX * nextScale;
       const rawTy = py - contentY * nextScale;
       const clamped = clampTransform(nextScale, rawTx, rawTy);
@@ -112,7 +116,7 @@ export function useBoardGestures({
     if (!viewport) return;
     const rect = viewport.getBoundingClientRect();
     const fitScale = Math.min(rect.width / contentWidth, rect.height / contentHeight);
-    fitScaleRef.current = Math.min(1, fitScale);
+    fitScaleRef.current = fitScale;
     const scale = fitScaleRef.current;
     const tx = (rect.width - contentWidth * scale) / 2;
     const ty = (rect.height - contentHeight * scale) / 2;

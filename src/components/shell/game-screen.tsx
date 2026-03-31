@@ -56,7 +56,12 @@ export function GameScreen({
   onSettingsChange: (patch: Partial<GameSettings>) => void;
 }) {
   const gameOver = game.status === "won" || game.status === "lost";
-  const showActionToggle = settings.showActionToggle || !settings.longPressEnabled;
+  const showActionToggle = !settings.longPressEnabled;
+  const statusMessage = gameOver
+    ? game.status === "won"
+      ? "You cleared the field."
+      : "Boom. Tap a new run when you’re ready."
+    : helpBanner;
 
   return (
     <section className="game-screen">
@@ -92,13 +97,11 @@ export function GameScreen({
         />
       </div>
 
-      <p className="game-screen__banner" aria-live="polite">
-        {gameOver
-          ? game.status === "won"
-            ? "You cleared the field."
-            : "Boom. Tap a new run when you’re ready."
-          : (helpBanner ?? "Tap the board. Long-press uses the secondary action.")}
-      </p>
+      {statusMessage ? (
+        <p className="game-screen__banner" aria-live="polite">
+          {statusMessage}
+        </p>
+      ) : null}
 
       {showActionToggle ? (
         <div className="game-screen__toggle">
