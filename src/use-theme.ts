@@ -1,42 +1,27 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
-export type ThemePreference = "light" | "dark" | "system";
+import { readStoredThemeName, writeStoredThemeName } from "@/lib/persistence.ts";
+import { THEMES, type ThemeName } from "@/lib/themes.ts";
 
-const STORAGE_KEY = "minesweeper-theme";
-
-function readStored(): ThemePreference | null {
-  if (typeof window === "undefined") return null;
-  const s = localStorage.getItem(STORAGE_KEY);
-  if (s === "light" || s === "dark" || s === "system") return s;
-  return null;
-}
-
-export function applyThemeToDocument(preference: ThemePreference) {
+export function applyThemeToDocument(themeName: ThemeName) {
   const root = document.documentElement;
-  const mql = window.matchMedia("(prefers-color-scheme: dark)");
-  const dark = preference === "dark" || (preference === "system" && mql.matches);
-  root.classList.toggle("dark", dark);
+  const theme = THEMES[themeName];
+  root.dataset.theme = themeName;
+  root.classList.toggle("dark", theme.appearance === "dark");
+  for (const [key, value] of Object.entries(theme.vars)) {
+    root.style.setProperty(key, value);
+  }
 }
 
-export function useThemePreference() {
-  const [preference, setPreference] = useState<ThemePreference>(() => readStored() ?? "system");
+export function useThemePreference(initialThemeName?: ThemeName) {
+  const [themeName, setThemeName] = useState<ThemeName>(
+    () => initialThemeName ?? readStoredThemeName() ?? "classic-light",
+  );
 
   useLayoutEffect(() => {
-    applyThemeToDocument(preference);
-    try {
-      localStorage.setItem(STORAGE_KEY, preference);
-    } catch {
-      /* ignore */
-    }
-  }, [preference]);
+    applyThemeToDocument(themeName);
+    writeStoredThemeName(themeName);
+  }, [themeName]);
 
-  useEffect(() => {
-    if (preference !== "system") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => applyThemeToDocument("system");
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [preference]);
-
-  return { preference, setPreference };
+  return { themeName, setThemeName };
 }
