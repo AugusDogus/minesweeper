@@ -20,7 +20,7 @@ export function createDefaultSettings(): GameSettings {
   return {
     themeName: getSystemThemeName(),
     defaultAction: "reveal",
-    showActionToggle: true,
+    showActionToggle: false,
     longPressEnabled: true,
     longPressMs: 325,
     easyDigging: false,

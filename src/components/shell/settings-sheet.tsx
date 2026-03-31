@@ -19,7 +19,7 @@ export function SettingsSheet({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-auto bottom-0 left-1/2 max-h-[85svh] w-full max-w-[min(100%,30rem)] -translate-x-1/2 translate-y-0 rounded-b-none rounded-t-[1.75rem] border-x-0 border-b-0 p-0"
+        className="settings-sheet-content top-auto bottom-0 left-1/2 max-h-[85svh] w-full max-w-[min(100%,30rem)] -translate-x-1/2 translate-y-0 rounded-b-none rounded-t-[1.75rem] border-x-0 border-b-0 p-0 data-open:animate-in data-open:slide-in-from-bottom-8 data-open:fade-in-0 data-closed:animate-out data-closed:slide-out-to-bottom-8 data-closed:fade-out-0"
       >
         <div className="settings-sheet">
           <div className="settings-sheet__grabber" aria-hidden />

@@ -45,7 +45,7 @@ export function BoardViewport({
   });
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative h-full min-h-[18rem] w-full">
       <div ref={viewportRef} className="board-viewport absolute inset-0" {...viewportHandlers}>
         <div ref={surfaceRef} className="board-surface">
           <div className="board-frame">

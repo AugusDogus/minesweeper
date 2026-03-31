@@ -5,6 +5,7 @@ import type { BoardInteraction } from "@/components/board/use-board-animations.t
 import { HintExplanation } from "@/components/hint-explanation.tsx";
 import { FlagContradictionPreview, HintRegionPreview } from "@/components/hint-region-preview.tsx";
 import { AppShell } from "@/components/shell/app-shell.tsx";
+import { DesktopGameScreen } from "@/components/shell/desktop-game-screen.tsx";
 import { GameScreen } from "@/components/shell/game-screen.tsx";
 import { MenuScreen } from "@/components/shell/menu-screen.tsx";
 import { SettingsSheet } from "@/components/shell/settings-sheet.tsx";
@@ -56,7 +57,26 @@ function formatIdleHelp(): string {
   return "Reveal a cell first. Pattern help works once the board is in progress.";
 }
 
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 960px)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(min-width: 960px)");
+    const sync = () => setIsDesktop(mediaQuery.matches);
+    sync();
+    mediaQuery.addEventListener("change", sync);
+    return () => mediaQuery.removeEventListener("change", sync);
+  }, []);
+
+  return isDesktop;
+}
+
 export default function App() {
+  const isDesktop = useIsDesktop();
   const initialSettings = useInitialSettings();
   const [settings, setSettings] = useState<GameSettings>(initialSettings);
   const { themeName, setThemeName } = useThemePreference(initialSettings.themeName);
@@ -531,6 +551,24 @@ export default function App() {
           onHelp={handleHelp}
           onOpenSettings={() => setSettingsOpen(true)}
           onThemeChange={setTheme}
+        />
+      ) : game && isDesktop ? (
+        <DesktopGameScreen
+          game={game}
+          difficulty={currentDifficulty}
+          difficulties={DIFFICULTIES}
+          settings={settings}
+          themeName={themeName}
+          minesRemaining={minesRemaining}
+          helpBanner={helpBanner}
+          highlights={highlightByKey}
+          onHelp={handleHelp}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onThemeChange={setTheme}
+          onPrimaryAction={handlePrimaryAction}
+          onSecondaryAction={handleSecondaryAction}
+          onStartDifficulty={handleNewGame}
+          onNewGame={() => handleNewGame(currentDifficulty)}
         />
       ) : game ? (
         <GameScreen

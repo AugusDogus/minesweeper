@@ -149,9 +149,9 @@
 .shell-root {
   min-height: 100svh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
   position: relative;
   overflow: hidden;
 }
@@ -169,19 +169,19 @@
 .shell-frame {
   position: relative;
   z-index: 1;
-  width: min(100%, 28.75rem);
-  min-height: min(100svh - 1.5rem, 54rem);
-  border: 1px solid var(--shell-panel-border);
-  border-radius: 2rem;
-  background: var(--shell-panel);
-  box-shadow: var(--shell-shadow);
-  backdrop-filter: blur(18px);
+  width: 100%;
+  min-height: 100svh;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   overflow: hidden;
 }
 
 .menu-screen,
 .game-screen {
-  min-height: min(100svh - 1.5rem, 54rem);
+  min-height: 100svh;
 }
 
 .menu-screen {
@@ -435,10 +435,11 @@
 }
 
 .game-screen__board {
+  position: relative;
   min-height: 0;
   flex: 1;
   padding-top: 3.4rem;
-  padding-bottom: 5rem;
+  padding-bottom: 1.25rem;
 }
 
 .game-screen__banner {
@@ -451,11 +452,12 @@
 }
 
 .game-screen__toggle {
-  position: absolute;
-  inset: auto 0.9rem 1rem;
+  position: sticky;
+  bottom: 0.75rem;
   z-index: 18;
   display: flex;
   justify-content: center;
+  padding-top: 0.5rem;
 }
 
 .action-toggle {
@@ -495,6 +497,7 @@
 }
 
 .board-viewport {
+  min-height: 100%;
   border-radius: 1.5rem;
   overflow: hidden;
   touch-action: none;
@@ -710,6 +713,79 @@
   color: var(--primary-foreground);
 }
 
+.desktop-shell {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 76rem);
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 2rem;
+}
+
+.desktop-shell__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.desktop-shell__title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.desktop-shell__copy,
+.desktop-shell__banner {
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.desktop-shell__header-actions,
+.desktop-shell__stats {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.desktop-shell__difficulty {
+  width: 100%;
+}
+
+.desktop-stat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 5.5rem;
+  min-height: 2.25rem;
+  padding: 0 0.8rem;
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+  border: 1px solid var(--shell-panel-border);
+  font-family: "Geist Variable", monospace;
+  font-weight: 700;
+}
+
+.desktop-shell__board {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 0;
+}
+
+.desktop-board-frame {
+  display: inline-block;
+  border-radius: 1rem;
+  padding: 0.45rem;
+  background: linear-gradient(
+    180deg,
+    var(--board-frame),
+    color-mix(in srgb, var(--board-surface) 88%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 18px 32px var(--board-shadow);
+}
+
 @keyframes board-ripple {
   from {
     opacity: 0.35;
@@ -757,12 +833,23 @@
   }
 }
 
-@media (min-width: 40rem) {
+@media (min-width: 60rem) {
   .shell-root {
+    align-items: center;
+    justify-content: center;
     padding: 1rem;
   }
 
-  .shell-frame,
+  .shell-frame {
+    width: min(100%, 80rem);
+    min-height: min(100svh - 2rem, 56rem);
+    border: 1px solid var(--shell-panel-border);
+    border-radius: 2rem;
+    background: var(--shell-panel);
+    box-shadow: var(--shell-shadow);
+    backdrop-filter: blur(18px);
+  }
+
   .menu-screen,
   .game-screen {
     min-height: min(100svh - 2rem, 56rem);
