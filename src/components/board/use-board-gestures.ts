@@ -21,6 +21,9 @@ type Bounds = {
   maxTy: number;
 };
 
+const DOUBLE_TAP_WINDOW_MS = 260;
+const DOUBLE_TAP_SLOP_PX = 24;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -34,6 +37,26 @@ function midpoint(a: PointerSnapshot, b: PointerSnapshot): { x: number; y: numbe
     x: (a.x + b.x) / 2,
     y: (a.y + b.y) / 2,
   };
+}
+
+export function shouldTriggerDoubleTapZoom({
+  now,
+  lastTapAt,
+  x,
+  y,
+  lastTapX,
+  lastTapY,
+}: {
+  now: number;
+  lastTapAt: number;
+  x: number;
+  y: number;
+  lastTapX: number | null;
+  lastTapY: number | null;
+}): boolean {
+  if (now - lastTapAt >= DOUBLE_TAP_WINDOW_MS) return false;
+  if (lastTapX === null || lastTapY === null) return false;
+  return Math.hypot(x - lastTapX, y - lastTapY) <= DOUBLE_TAP_SLOP_PX;
 }
 
 export function useBoardGestures({
@@ -62,6 +85,8 @@ export function useBoardGestures({
     pinchDistance: 0,
     pinchScale: 1,
     lastTapAt: 0,
+    lastTapX: null as number | null,
+    lastTapY: null as number | null,
     lastMoveAt: 0,
     velocityX: 0,
     velocityY: 0,
@@ -361,7 +386,16 @@ export function useBoardGestures({
 
         if (event.pointerType === "touch" && wasTap) {
           const now = performance.now();
-          if (now - gestureMetaRef.current.lastTapAt < 260) {
+          if (
+            shouldTriggerDoubleTapZoom({
+              now,
+              lastTapAt: gestureMetaRef.current.lastTapAt,
+              x: event.clientX,
+              y: event.clientY,
+              lastTapX: gestureMetaRef.current.lastTapX,
+              lastTapY: gestureMetaRef.current.lastTapY,
+            })
+          ) {
             const currentScale = stateRef.current.scale;
             const targetScale =
               currentScale > fitScaleRef.current + 0.08
@@ -373,8 +407,14 @@ export function useBoardGestures({
             applySurfaceTransition("transform 200ms cubic-bezier(0.23, 1, 0.32, 1)");
             zoomAtPoint(targetScale, event.clientX, event.clientY);
             gestureMetaRef.current.suppressClickUntil = performance.now() + 340;
+            gestureMetaRef.current.lastTapX = null;
+            gestureMetaRef.current.lastTapY = null;
+            gestureMetaRef.current.lastTapAt = 0;
+            return;
           }
           gestureMetaRef.current.lastTapAt = now;
+          gestureMetaRef.current.lastTapX = event.clientX;
+          gestureMetaRef.current.lastTapY = event.clientY;
         }
       },
       onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => {
