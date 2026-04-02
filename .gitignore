@@ -25,3 +25,10 @@ dist-ssr
 *.sw?
 
 .env
+
+# Local reverse-engineering artifacts
+decompiled/
+decompiled-java/
+*.apk
+*.xapk
+Pasted Text.txt

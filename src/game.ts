@@ -171,8 +171,39 @@ function checkWin(state: GameState): boolean {
   return true;
 }
 
+function markWon(state: GameState): void {
+  state.status = "won";
+  for (const c of state.cells) {
+    if (c.isMine && !c.flagged) c.flagged = true;
+  }
+}
+
+function resolveWinState(state: GameState): void {
+  if (state.status === "playing" && checkWin(state)) {
+    markWon(state);
+  }
+}
+
 export function flagCount(state: GameState): number {
   return state.cells.reduce((n, c) => n + (c.flagged ? 1 : 0), 0);
+}
+
+export function getCell(state: GameState, row: number, col: number): Cell | null {
+  if (row < 0 || row >= state.rows || col < 0 || col >= state.cols) return null;
+  return state.cells[index(state.cols, row, col)] ?? null;
+}
+
+function hiddenUnflaggedNeighbors(state: GameState, row: number, col: number): [number, number][] {
+  return neighbors(state.rows, state.cols, row, col).filter(([nr, nc]) => {
+    const cell = state.cells[index(state.cols, nr, nc)]!;
+    return !cell.revealed && !cell.flagged;
+  });
+}
+
+function flaggedNeighborCount(state: GameState, row: number, col: number): number {
+  return neighbors(state.rows, state.cols, row, col).reduce((count, [nr, nc]) => {
+    return count + (state.cells[index(state.cols, nr, nc)]!.flagged ? 1 : 0);
+  }, 0);
 }
 
 export type FlagContradictionKind = "too_many_flags" | "not_enough_hidden";
@@ -314,13 +345,7 @@ export function reveal(state: GameState, row: number, col: number): GameState {
   }
 
   revealCell(state, row, col);
-
-  if (state.status === "playing" && checkWin(state)) {
-    state.status = "won";
-    for (const c of cells) {
-      if (c.isMine && !c.flagged) c.flagged = true;
-    }
-  }
+  resolveWinState(state);
 
   return state;
 }
@@ -338,13 +363,97 @@ export function toggleFlag(state: GameState, row: number, col: number): GameStat
   if (!cell.flagged && flags >= state.mineTotal) return state;
 
   cell.flagged = !cell.flagged;
+  resolveWinState(state);
 
-  if (state.status === "playing" && checkWin(state)) {
-    state.status = "won";
-    for (const c of cells) {
-      if (c.isMine && !c.flagged) c.flagged = true;
+  return state;
+}
+
+export function canChordReveal(state: GameState, row: number, col: number): boolean {
+  if (state.status !== "playing") return false;
+  const cell = getCell(state, row, col);
+  if (!cell || !cell.revealed || cell.isMine || cell.adjacent === 0) return false;
+  const hidden = hiddenUnflaggedNeighbors(state, row, col);
+  if (hidden.length === 0) return false;
+  return flaggedNeighborCount(state, row, col) === cell.adjacent;
+}
+
+export function chordReveal(state: GameState, row: number, col: number): boolean {
+  if (!canChordReveal(state, row, col)) return false;
+  let changed = false;
+  for (const [nr, nc] of hiddenUnflaggedNeighbors(state, row, col)) {
+    const cell = state.cells[index(state.cols, nr, nc)]!;
+    if (!cell.revealed && !cell.flagged) {
+      revealCell(state, nr, nc);
+      changed = true;
+      if (state.status === "lost") return true;
+    }
+  }
+  resolveWinState(state);
+  return changed;
+}
+
+export function canAutoFlagNeighbors(state: GameState, row: number, col: number): boolean {
+  if (state.status !== "playing") return false;
+  const cell = getCell(state, row, col);
+  if (!cell || !cell.revealed || cell.isMine || cell.adjacent === 0) return false;
+  const hidden = hiddenUnflaggedNeighbors(state, row, col);
+  if (hidden.length === 0) return false;
+  const remaining = cell.adjacent - flaggedNeighborCount(state, row, col);
+  return (
+    remaining > 0 && remaining === hidden.length && flagCount(state) + remaining <= state.mineTotal
+  );
+}
+
+export function autoFlagNeighbors(state: GameState, row: number, col: number): boolean {
+  if (!canAutoFlagNeighbors(state, row, col)) return false;
+  let changed = false;
+  for (const [nr, nc] of hiddenUnflaggedNeighbors(state, row, col)) {
+    const cell = state.cells[index(state.cols, nr, nc)]!;
+    if (!cell.flagged) {
+      cell.flagged = true;
+      changed = true;
+    }
+  }
+  resolveWinState(state);
+  return changed;
+}
+
+export function findDifficultyForGame(state: GameState): Difficulty | null {
+  return (
+    DIFFICULTIES.find(
+      (difficulty) =>
+        difficulty.rows === state.rows &&
+        difficulty.cols === state.cols &&
+        difficulty.mines === state.mineTotal,
+    ) ?? null
+  );
+}
+
+export function hasGameChanged(a: GameState, b: GameState): boolean {
+  if (
+    a.rows !== b.rows ||
+    a.cols !== b.cols ||
+    a.mineTotal !== b.mineTotal ||
+    a.status !== b.status ||
+    a.started !== b.started ||
+    a.elapsedSeconds !== b.elapsedSeconds ||
+    a.cells.length !== b.cells.length
+  ) {
+    return true;
+  }
+
+  for (let i = 0; i < a.cells.length; i++) {
+    const cellA = a.cells[i]!;
+    const cellB = b.cells[i]!;
+    if (
+      cellA.isMine !== cellB.isMine ||
+      cellA.adjacent !== cellB.adjacent ||
+      cellA.revealed !== cellB.revealed ||
+      cellA.flagged !== cellB.flagged
+    ) {
+      return true;
     }
   }
 
-  return state;
+  return false;
 }

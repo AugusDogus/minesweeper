@@ -1,355 +1,142 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebHaptics } from "web-haptics/react";
-import {
-  CircleHelp,
-  Flag,
-  Frown,
-  Monitor,
-  Moon,
-  RotateCcw,
-  Sparkles,
-  Sun,
-  Timer,
-} from "lucide-react";
 
+import type { BoardInteraction } from "@/components/board/use-board-animations.ts";
 import { HintExplanation } from "@/components/hint-explanation.tsx";
 import { FlagContradictionPreview, HintRegionPreview } from "@/components/hint-region-preview.tsx";
-import { Button } from "@/components/ui/button";
+import { AppShell } from "@/components/shell/app-shell.tsx";
+import { DesktopGameScreen } from "@/components/shell/desktop-game-screen.tsx";
+import { GameScreen } from "@/components/shell/game-screen.tsx";
+import { MenuScreen } from "@/components/shell/menu-screen.tsx";
+import { SettingsSheet } from "@/components/shell/settings-sheet.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { HINT_CLUE_A_RING, HINT_CLUE_B_RING, HINT_SCOPE_SURFACE } from "@/lib/hint-clue-rings.ts";
-import { cn } from "@/lib/utils";
-
-import { type Hint, type HintRole, findHint, getHintNarrative } from "./hints.ts";
-import { type ThemePreference, useThemePreference } from "./use-theme.ts";
-
 import {
-  type Cell,
-  type Difficulty,
-  DIFFICULTIES,
-  type GameState,
+  autoFlagNeighbors,
+  canAutoFlagNeighbors,
+  canChordReveal,
+  chordReveal,
   cloneGameState,
   createGame,
-  NO_FORCED_MOVE_HINT,
-  type LocalFlagContradiction,
-  getLocalFlagContradiction,
+  DIFFICULTIES,
+  findDifficultyForGame,
   flagCount,
+  getLocalFlagContradiction,
+  hasGameChanged,
   isRevealable,
+  NO_FORCED_MOVE_HINT,
   reveal,
   tickTimer,
   toggleFlag,
-} from "./game.ts";
+  type Difficulty,
+  type GameState,
+  type LocalFlagContradiction,
+} from "@/game.ts";
+import { findHint, getHintNarrative, type Hint, type HintRole } from "@/hints.ts";
+import { createDefaultSettings, sanitizeSettings, type GameSettings } from "@/lib/game-settings.ts";
+import {
+  clearStoredGame,
+  isResumableGame,
+  readStoredDifficulty,
+  readStoredGame,
+  readStoredSettings,
+  snapshotGame,
+  writeStoredDifficulty,
+  writeStoredGame,
+  writeStoredSettings,
+} from "@/lib/persistence.ts";
+import { type ThemeName } from "@/lib/themes.ts";
+import { applyThemeToDocument, useThemePreference } from "@/use-theme.ts";
 
-const DIFFICULTY_STORAGE_KEY = "minesweeper-difficulty";
+type ShellViewMode = "menu" | "playing" | "post_game";
 
-function readStoredDifficulty(): Difficulty {
-  if (typeof window === "undefined") return DIFFICULTIES[1]!;
-  try {
-    const id = localStorage.getItem(DIFFICULTY_STORAGE_KEY);
-    const d = DIFFICULTIES.find((x) => x.id === id);
-    if (d) return d;
-  } catch {
-    /* ignore */
-  }
-  return DIFFICULTIES[1]!;
+function useInitialSettings(): GameSettings {
+  return useMemo(() => sanitizeSettings(readStoredSettings(), createDefaultSettings()), []);
 }
 
-function persistDifficulty(difficulty: Difficulty) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(DIFFICULTY_STORAGE_KEY, difficulty.id);
-  } catch {
-    /* ignore */
-  }
+function formatIdleHelp(): string {
+  return "Reveal a cell first. Pattern help works once the board is in progress.";
 }
 
-const NUMBER_COLORS: Record<number, string> = {
-  1: "text-[var(--n1)]",
-  2: "text-[var(--n2)]",
-  3: "text-[var(--n3)]",
-  4: "text-[var(--n4)]",
-  5: "text-[var(--n5)]",
-  6: "text-[var(--n6)]",
-  7: "text-[var(--n7)]",
-  8: "text-[var(--n8)]",
-};
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 960px)").matches;
+  });
 
-function formatTime(seconds: number): string {
-  return String(Math.min(999, Math.floor(seconds))).padStart(3, "0");
-}
-
-const LONG_PRESS_MS = 450;
-const LONG_PRESS_MOVE_PX = 12;
-
-function CellButton({
-  cell,
-  row,
-  col,
-  gameOver,
-  highlight,
-  onReveal,
-  onFlag,
-}: {
-  cell: Cell;
-  row: number;
-  col: number;
-  gameOver: boolean;
-  highlight?: HintRole;
-  onReveal: (row: number, col: number) => void;
-  onFlag: (row: number, col: number) => void;
-}) {
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const suppressClickRef = useRef(false);
-  const recentLongPressFlagRef = useRef(false);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const clearLongPressTimer = useCallback(() => {
-    if (longPressTimerRef.current !== undefined) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = undefined;
-    }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(min-width: 960px)");
+    const sync = () => setIsDesktop(mediaQuery.matches);
+    sync();
+    mediaQuery.addEventListener("change", sync);
+    return () => mediaQuery.removeEventListener("change", sync);
   }, []);
 
-  useEffect(() => () => clearLongPressTimer(), [clearLongPressTimer]);
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (gameOver || cell.revealed) return;
-      if (e.pointerType !== "touch" || e.button !== 0) return;
-      clearLongPressTimer();
-      touchStartRef.current = { x: e.clientX, y: e.clientY };
-      longPressTimerRef.current = setTimeout(() => {
-        longPressTimerRef.current = undefined;
-        recentLongPressFlagRef.current = true;
-        suppressClickRef.current = true;
-        onFlag(row, col);
-        window.setTimeout(() => {
-          recentLongPressFlagRef.current = false;
-        }, 600);
-      }, LONG_PRESS_MS);
-      try {
-        (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    },
-    [gameOver, cell.revealed, clearLongPressTimer, onFlag, row, col],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (longPressTimerRef.current === undefined || !touchStartRef.current) return;
-      if (e.pointerType !== "touch") return;
-      const { x, y } = touchStartRef.current;
-      const dx = Math.abs(e.clientX - x);
-      const dy = Math.abs(e.clientY - y);
-      if (dx > LONG_PRESS_MOVE_PX || dy > LONG_PRESS_MOVE_PX) {
-        clearLongPressTimer();
-        touchStartRef.current = null;
-      }
-    },
-    [clearLongPressTimer],
-  );
-
-  const handlePointerUpOrCancel = useCallback(
-    (e: React.PointerEvent) => {
-      try {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-      } catch {
-        /* ignore */
-      }
-      clearLongPressTimer();
-      touchStartRef.current = null;
-    },
-    [clearLongPressTimer],
-  );
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (suppressClickRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        suppressClickRef.current = false;
-        return;
-      }
-      onReveal(row, col);
-    },
-    [onReveal, row, col],
-  );
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      if (gameOver || cell.revealed) return;
-      if (recentLongPressFlagRef.current) return;
-      onFlag(row, col);
-    },
-    [gameOver, cell.revealed, onFlag, row, col],
-  );
-
-  let content: React.ReactNode = null;
-  if (cell.flagged && !gameOver)
-    content = (
-      <Flag className="size-[0.85em] shrink-0 text-destructive" strokeWidth={2.25} aria-hidden />
-    );
-  else if (cell.revealed && cell.isMine)
-    content = (
-      <span
-        className="size-[0.6em] min-h-[0.6em] min-w-[0.6em] shrink-0 rounded-full bg-destructive"
-        aria-hidden
-      />
-    );
-  else if (cell.revealed && cell.adjacent > 0)
-    content = (
-      <span className="tabular-nums [text-box-trim:trim-both] [text-box-edge:cap_alphabetic]">
-        {cell.adjacent}
-      </span>
-    );
-
-  const wrongFlag = gameOver && cell.flagged && !cell.isMine;
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUpOrCancel}
-      onPointerCancel={handlePointerUpOrCancel}
-      onPointerLeave={handlePointerUpOrCancel}
-      onContextMenu={handleContextMenu}
-      aria-label={`Cell row ${row + 1} column ${col + 1}`}
-      className={cn(
-        "grid size-full min-h-0 min-w-0 place-items-center p-0 text-[clamp(0.7rem,3.2vw,0.95rem)] font-bold leading-none select-none touch-manipulation [-webkit-touch-callout:none]",
-        "transition-transform duration-100 ease-out",
-        cell.revealed
-          ? [
-              "cursor-default border border-foreground/10 bg-background",
-              cell.isMine && "bg-destructive/15 text-destructive",
-              !cell.isMine && cell.adjacent > 0 && NUMBER_COLORS[cell.adjacent],
-            ]
-          : [
-              "cursor-pointer border-2",
-              "bg-[hsl(220,14%,80%)] dark:bg-[hsl(220,10%,32%)]",
-              "border-t-[hsl(220,14%,92%)] border-l-[hsl(220,14%,92%)] border-b-[hsl(220,14%,58%)] border-r-[hsl(220,14%,58%)]",
-              "dark:border-t-[hsl(220,10%,44%)] dark:border-l-[hsl(220,10%,44%)] dark:border-b-[hsl(220,10%,18%)] dark:border-r-[hsl(220,10%,18%)]",
-              "active:scale-95 active:border-foreground/20",
-              "hover:brightness-105",
-            ],
-        wrongFlag && "bg-destructive/20 line-through",
-        highlight === "clue" && "relative z-10 ring-2 ring-inset ring-ring",
-        highlight === "clue-a" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_A_RING),
-        highlight === "clue-b" && cn("relative z-10 ring-2 ring-inset", HINT_CLUE_B_RING),
-        highlight === "scope" && cn("relative z-10", HINT_SCOPE_SURFACE),
-        highlight === "focus" &&
-          "relative z-10 ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
-        highlight === "error-clue" &&
-          "relative z-10 ring-2 ring-inset ring-destructive ring-offset-0",
-        highlight === "error-near" &&
-          "relative z-10 ring-2 ring-inset ring-amber-500/90 dark:ring-amber-400/90",
-      )}
-    >
-      {content}
-    </button>
-  );
-}
-
-function StatReadout({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: typeof Flag;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="inline-flex min-h-11 min-w-22 items-center justify-center gap-1.5 rounded-md bg-muted px-2.5 font-mono text-sm tabular-nums sm:h-7 sm:min-h-0 sm:min-w-18 sm:px-2"
-      role="status"
-      aria-label={label}
-    >
-      <Icon className="size-4 shrink-0 text-muted-foreground sm:size-3.5" aria-hidden />
-      {children}
-    </div>
-  );
-}
-
-function ThemeToggle({
-  preference,
-  onChange,
-}: {
-  preference: ThemePreference;
-  onChange: (v: ThemePreference) => void;
-}) {
-  return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      value={preference}
-      onValueChange={(v) => {
-        if (v === "light" || v === "dark" || v === "system") onChange(v);
-      }}
-      className="shrink-0"
-      aria-label="Color theme"
-    >
-      <ToggleGroupItem
-        value="system"
-        className="min-h-11 min-w-11 px-2 sm:min-h-9 sm:min-w-9"
-        title="Use device theme"
-        aria-label="Use system color theme"
-      >
-        <Monitor className="size-3.5" aria-hidden />
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="light"
-        className="min-h-11 min-w-11 px-2 sm:min-h-9 sm:min-w-9"
-        title="Light"
-        aria-label="Light color theme"
-      >
-        <Sun className="size-3.5" aria-hidden />
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="dark"
-        className="min-h-11 min-w-11 px-2 sm:min-h-9 sm:min-w-9"
-        title="Dark"
-        aria-label="Dark color theme"
-      >
-        <Moon className="size-3.5" aria-hidden />
-      </ToggleGroupItem>
-    </ToggleGroup>
-  );
+  return isDesktop;
 }
 
 export default function App() {
-  const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
+  const isDesktop = useIsDesktop();
+  const initialSettings = useInitialSettings();
+  const [settings, setSettings] = useState<GameSettings>(initialSettings);
+  const { themeName, setThemeName } = useThemePreference(initialSettings.themeName);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>(() =>
+    readStoredDifficulty(),
+  );
+  const [savedGame, setSavedGame] = useState<GameState | null>(() => readStoredGame());
+  const [game, setGame] = useState<GameState | null>(null);
+  const [viewMode, setViewMode] = useState<ShellViewMode>("menu");
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeHint, setActiveHint] = useState<Hint | null>(null);
+  const [flagContradiction, setFlagContradiction] = useState<LocalFlagContradiction | null>(null);
+  const [helpBanner, setHelpBanner] = useState<string | null>(null);
+  const [lastInteraction, setLastInteraction] = useState<BoardInteraction>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const undoStackRef = useRef<GameState[]>([]);
+  const redoStackRef = useRef<GameState[]>([]);
+  const highlightClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const gameRef = useRef<GameState | null>(game);
+  const activeHintRef = useRef<Hint | null>(activeHint);
+  gameRef.current = game;
+  activeHintRef.current = activeHint;
+
   const { trigger: triggerHaptic, isSupported: hapticsSupported } = useWebHaptics();
 
-  const hapticMobile = useCallback(
+  const triggerTouchHaptic = useCallback(
     (preset: "success" | "error" | "selection" | "light") => {
-      if (!hapticsSupported || typeof window === "undefined") return;
+      if (!settings.hapticsEnabled || !hapticsSupported || typeof window === "undefined") return;
       if (!window.matchMedia("(pointer: coarse)").matches) return;
       void triggerHaptic(preset);
     },
-    [hapticsSupported, triggerHaptic],
+    [hapticsSupported, settings.hapticsEnabled, triggerHaptic],
   );
-  const [game, setGame] = useState<GameState>(() => createGame(readStoredDifficulty()));
-  const [, setTick] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const gameRef = useRef(game);
-  gameRef.current = game;
 
-  const [activeHint, setActiveHint] = useState<Hint | null>(null);
-  const [flagContradiction, setFlagContradiction] = useState<LocalFlagContradiction | null>(null);
-  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
-  const [helpBanner, setHelpBanner] = useState<string | null>(null);
-  const activeHintRef = useRef<Hint | null>(null);
-  activeHintRef.current = activeHint;
-  const highlightClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const undoStackRef = useRef<GameState[]>([]);
-  const redoStackRef = useRef<GameState[]>([]);
+  const stopTimer = useCallback(() => {
+    if (timerRef.current !== undefined) {
+      clearInterval(timerRef.current);
+      timerRef.current = undefined;
+    }
+  }, []);
+
+  const startTimer = useCallback(() => {
+    stopTimer();
+    timerRef.current = setInterval(() => {
+      const current = gameRef.current;
+      if (!current || current.status !== "playing") return;
+      const next = cloneGameState(current);
+      tickTimer(next, 1);
+      setGame(next);
+      gameRef.current = next;
+      if (isResumableGame(next)) {
+        const snapshot = snapshotGame(next);
+        writeStoredGame(snapshot);
+        setSavedGame(snapshot);
+      }
+    }, 1000);
+  }, [stopTimer]);
+
+  useEffect(() => stopTimer, [stopTimer]);
 
   const cancelHighlightClear = useCallback(() => {
     if (highlightClearTimeoutRef.current !== undefined) {
@@ -374,128 +161,226 @@ export default function App() {
     setHelpDialogOpen(false);
   }, [cancelHighlightClear]);
 
-  const dismissHintDialog = useCallback(() => {
-    setHelpDialogOpen(false);
-    scheduleHighlightClear();
-  }, [scheduleHighlightClear]);
-
   useEffect(() => () => cancelHighlightClear(), [cancelHighlightClear]);
 
-  const highlightByKey = useMemo(() => {
-    const m = new Map<string, HintRole>();
-    if (activeHint) {
-      for (const c of activeHint.cells) {
-        m.set(`${c.row},${c.col}`, c.role);
-      }
-    } else if (flagContradiction) {
-      for (const h of flagContradiction.highlightCells) {
-        m.set(`${h.row},${h.col}`, h.role);
-      }
+  const persistSettings = useCallback(
+    (nextSettings: GameSettings) => {
+      writeStoredSettings(nextSettings);
+      applyThemeToDocument(nextSettings.themeName);
+      setThemeName(nextSettings.themeName);
+    },
+    [setThemeName],
+  );
+
+  const updateSettings = useCallback(
+    (patch: Partial<GameSettings>) => {
+      setSettings((current) => {
+        const next = sanitizeSettings({ ...current, ...patch }, current);
+        persistSettings(next);
+        return next;
+      });
+    },
+    [persistSettings],
+  );
+
+  const setTheme = useCallback(
+    (nextThemeName: ThemeName) => {
+      updateSettings({ themeName: nextThemeName });
+    },
+    [updateSettings],
+  );
+
+  const updatePersistenceForGame = useCallback((nextGame: GameState | null) => {
+    if (!nextGame || !isResumableGame(nextGame)) {
+      clearStoredGame();
+      setSavedGame(null);
+      return;
     }
-    return m;
-  }, [activeHint, flagContradiction]);
-
-  const hintNarrative = activeHint ? getHintNarrative(game, activeHint) : null;
-
-  const forceRender = useCallback(() => setTick((n) => n + 1), []);
-
-  const stopTimer = useCallback(() => {
-    if (timerRef.current !== undefined) {
-      clearInterval(timerRef.current);
-      timerRef.current = undefined;
-    }
+    const snapshot = snapshotGame(nextGame);
+    writeStoredGame(snapshot);
+    setSavedGame(snapshot);
   }, []);
 
-  const startTimer = useCallback(() => {
-    stopTimer();
-    timerRef.current = setInterval(() => {
-      tickTimer(gameRef.current, 1);
-      forceRender();
-    }, 1000);
-  }, [stopTimer, forceRender]);
+  const commitGame = useCallback(
+    (nextGame: GameState | null, interaction: BoardInteraction = null) => {
+      setGame(nextGame);
+      gameRef.current = nextGame;
+      setLastInteraction(interaction);
 
-  useEffect(() => stopTimer, [stopTimer]);
+      if (!nextGame) {
+        stopTimer();
+        startTransition(() => setViewMode("menu"));
+        return;
+      }
 
-  const pushUndoSnapshot = useCallback(() => {
-    const g = gameRef.current;
-    const stack = undoStackRef.current;
-    stack.push(cloneGameState(g));
+      const difficulty = findDifficultyForGame(nextGame);
+      if (difficulty) {
+        setSelectedDifficulty(difficulty);
+        writeStoredDifficulty(difficulty);
+      }
+
+      if (nextGame.status === "playing") {
+        if (nextGame.started) startTimer();
+        startTransition(() => setViewMode("playing"));
+      } else if (nextGame.status === "won" || nextGame.status === "lost") {
+        stopTimer();
+        clearStoredGame();
+        setSavedGame(null);
+        startTransition(() => setViewMode("post_game"));
+      } else {
+        stopTimer();
+        startTransition(() => setViewMode("playing"));
+      }
+
+      updatePersistenceForGame(nextGame);
+    },
+    [startTimer, stopTimer, updatePersistenceForGame],
+  );
+
+  const handleDifficultyChange = useCallback((difficulty: Difficulty) => {
+    setSelectedDifficulty(difficulty);
+    writeStoredDifficulty(difficulty);
+  }, []);
+
+  const handleNewGame = useCallback(
+    (difficulty = selectedDifficulty) => {
+      stopTimer();
+      clearHintFully();
+      setHelpBanner(null);
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      handleDifficultyChange(difficulty);
+      commitGame(createGame(difficulty), null);
+    },
+    [clearHintFully, commitGame, handleDifficultyChange, selectedDifficulty, stopTimer],
+  );
+
+  const handleResume = useCallback(() => {
+    if (!savedGame) return;
+    clearHintFully();
+    setHelpBanner(null);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    commitGame(cloneGameState(savedGame), null);
+  }, [clearHintFully, commitGame, savedGame]);
+
+  const pushUndoSnapshot = useCallback((snapshot: GameState) => {
+    undoStackRef.current.push(snapshot);
     redoStackRef.current = [];
   }, []);
 
-  const handleReveal = useCallback(
-    (row: number, col: number) => {
-      const g = gameRef.current;
-      const canReveal = isRevealable(g, row, col);
-      if (canReveal) pushUndoSnapshot();
-      const wasPlaying = g.status === "playing";
-      setHelpBanner(null);
+  const withGameMutation = useCallback(
+    (
+      row: number,
+      col: number,
+      kind: NonNullable<BoardInteraction>["kind"],
+      mutate: (draft: GameState) => boolean,
+      hapticForChange: "success" | "error" | "selection" | "light" = "selection",
+    ) => {
+      const current = gameRef.current;
+      if (!current) return;
+      const previous = cloneGameState(current);
+      const draft = cloneGameState(current);
       clearHintFully();
-      reveal(g, row, col);
-      if (canReveal) {
-        if (g.status === "lost") hapticMobile("error");
-        else if (g.status === "won") hapticMobile("success");
-        else hapticMobile("selection");
+      setHelpBanner(null);
+      const changed = mutate(draft);
+      if (!changed || !hasGameChanged(previous, draft)) return;
+
+      pushUndoSnapshot(previous);
+      if (draft.status === "lost") {
+        triggerTouchHaptic("error");
+      } else if (draft.status === "won") {
+        triggerTouchHaptic("success");
+      } else {
+        triggerTouchHaptic(hapticForChange);
       }
-      if (!wasPlaying && g.status === "playing") startTimer();
-      if (g.status === "won" || g.status === "lost") stopTimer();
-      forceRender();
+
+      commitGame(draft, {
+        token: Date.now(),
+        row,
+        col,
+        kind,
+      });
     },
-    [startTimer, stopTimer, forceRender, clearHintFully, pushUndoSnapshot, hapticMobile],
+    [clearHintFully, commitGame, pushUndoSnapshot, triggerTouchHaptic],
   );
 
-  const handleUndoReveal = useCallback(() => {
-    const stack = undoStackRef.current;
-    const snap = stack.pop();
-    if (!snap) return;
-    const cur = gameRef.current;
-    const redo = redoStackRef.current;
-    redo.push(cloneGameState(cur));
-    stopTimer();
-    clearHintFully();
-    setHelpBanner(null);
-    gameRef.current = snap;
-    setGame(snap);
-    if (snap.status === "playing" && snap.started) startTimer();
-    forceRender();
-  }, [stopTimer, clearHintFully, startTimer, forceRender]);
-
-  const handleRedoReveal = useCallback(() => {
-    const stack = redoStackRef.current;
-    const snap = stack.pop();
-    if (!snap) return;
-    const undo = undoStackRef.current;
-    undo.push(cloneGameState(gameRef.current));
-    stopTimer();
-    clearHintFully();
-    setHelpBanner(null);
-    gameRef.current = snap;
-    setGame(snap);
-    if (snap.status === "playing" && snap.started) startTimer();
-    forceRender();
-  }, [stopTimer, clearHintFully, startTimer, forceRender]);
-
-  const handleFlag = useCallback(
+  const handlePrimaryAction = useCallback(
     (row: number, col: number) => {
-      const g = gameRef.current;
-      const idx = row * g.cols + col;
-      const wasFlagged = g.cells[idx]!.flagged;
-      setHelpBanner(null);
-      clearHintFully();
-      toggleFlag(g, row, col);
-      const toggled = g.cells[idx]!.flagged !== wasFlagged;
-      if (toggled) {
-        if (g.status === "won") hapticMobile("success");
-        else hapticMobile("light");
-      }
-      if (g.status === "won" || g.status === "lost") stopTimer();
-      forceRender();
+      withGameMutation(
+        row,
+        col,
+        "primary",
+        (draft) => {
+          if (isRevealable(draft, row, col)) {
+            reveal(draft, row, col);
+            return true;
+          }
+          if (settings.easyDigging && canChordReveal(draft, row, col)) {
+            return chordReveal(draft, row, col);
+          }
+          return false;
+        },
+        settings.hapticIntensity === "medium" ? "selection" : "light",
+      );
     },
-    [stopTimer, forceRender, clearHintFully, hapticMobile],
+    [settings.easyDigging, settings.hapticIntensity, withGameMutation],
   );
+
+  const handleSecondaryAction = useCallback(
+    (row: number, col: number) => {
+      withGameMutation(
+        row,
+        col,
+        "secondary",
+        (draft) => {
+          const index = row * draft.cols + col;
+          const target = draft.cells[index]!;
+          if (!target.revealed) {
+            const before = target.flagged;
+            toggleFlag(draft, row, col);
+            return target.flagged !== before;
+          }
+          if (settings.easyFlagging && canAutoFlagNeighbors(draft, row, col)) {
+            return autoFlagNeighbors(draft, row, col);
+          }
+          return false;
+        },
+        settings.hapticIntensity === "medium" ? "selection" : "light",
+      );
+    },
+    [settings.easyFlagging, settings.hapticIntensity, withGameMutation],
+  );
+
+  const handleUndo = useCallback(() => {
+    const previous = undoStackRef.current.pop();
+    const current = gameRef.current;
+    if (!previous || !current) return;
+    redoStackRef.current.push(cloneGameState(current));
+    clearHintFully();
+    setHelpBanner(null);
+    commitGame(previous, null);
+  }, [clearHintFully, commitGame]);
+
+  const handleRedo = useCallback(() => {
+    const next = redoStackRef.current.pop();
+    const current = gameRef.current;
+    if (!next || !current) return;
+    undoStackRef.current.push(cloneGameState(current));
+    clearHintFully();
+    setHelpBanner(null);
+    commitGame(next, null);
+  }, [clearHintFully, commitGame]);
+
+  const dismissHintDialog = useCallback(() => {
+    setHelpDialogOpen(false);
+    if (activeHintRef.current || flagContradiction) {
+      scheduleHighlightClear();
+    }
+  }, [flagContradiction, scheduleHighlightClear]);
 
   const handleHelp = useCallback(() => {
-    const g = gameRef.current;
+    const current = gameRef.current;
     if (helpDialogOpen) {
       dismissHintDialog();
       return;
@@ -505,98 +390,109 @@ export default function App() {
       setHelpDialogOpen(true);
       return;
     }
-    if (g.status !== "playing") {
-      setHelpBanner(
-        g.status === "idle"
-          ? "Reveal a cell first—pattern help (H) works once the game is in progress."
-          : "Start a new game to use pattern help.",
-      );
-      return;
-    }
-    const flagIssue = getLocalFlagContradiction(g);
-    if (flagIssue) {
-      setHelpBanner(null);
-      cancelHighlightClear();
-      setActiveHint(null);
-      setFlagContradiction(flagIssue);
+    if (!current) {
       setHelpDialogOpen(true);
       return;
     }
-    const h = findHint(g);
-    if (!h) {
+    if (current.status !== "playing") {
       setHelpBanner(
-        `No move can be derived from visible clues with the techniques help teaches—recheck flags, look for overlapping regions, or guess. ${NO_FORCED_MOVE_HINT}`,
+        current.status === "idle" ? formatIdleHelp() : "Start a new game to use pattern help.",
       );
+      setHelpDialogOpen(true);
       return;
     }
-    setHelpBanner(null);
+    const contradiction = getLocalFlagContradiction(current);
+    if (contradiction) {
+      setFlagContradiction(contradiction);
+      cancelHighlightClear();
+      setActiveHint(null);
+      setHelpDialogOpen(true);
+      return;
+    }
+    const hint = findHint(current);
+    if (!hint) {
+      setHelpBanner(`No forced move is visible from the current clues. ${NO_FORCED_MOVE_HINT}`);
+      setHelpDialogOpen(true);
+      return;
+    }
     cancelHighlightClear();
     setFlagContradiction(null);
-    setActiveHint(h);
+    setActiveHint(hint);
     setHelpDialogOpen(true);
-  }, [helpDialogOpen, dismissHintDialog, cancelHighlightClear]);
+  }, [cancelHighlightClear, dismissHintDialog, helpDialogOpen]);
+
+  const handleHome = useCallback(() => {
+    const current = gameRef.current;
+    if (current && isResumableGame(current)) {
+      const snapshot = snapshotGame(current);
+      writeStoredGame(snapshot);
+      setSavedGame(snapshot);
+    }
+    stopTimer();
+    clearHintFully();
+    setHelpBanner(null);
+    startTransition(() => setViewMode("menu"));
+  }, [clearHintFully, stopTimer]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
       const inEditable =
-        (t instanceof HTMLElement && t.isContentEditable) ||
-        t instanceof HTMLInputElement ||
-        t instanceof HTMLTextAreaElement ||
-        t instanceof HTMLSelectElement;
+        (target instanceof HTMLElement && target.isContentEditable) ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement;
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         if (inEditable) return;
-        e.preventDefault();
-        if (e.shiftKey) handleRedoReveal();
-        else handleUndoReveal();
+        event.preventDefault();
+        if (event.shiftKey) handleRedo();
+        else handleUndo();
         return;
       }
 
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (k !== "h") return;
-      if (inEditable) return;
-      e.preventDefault();
-      handleHelp();
+      if (event.metaKey || event.ctrlKey || event.altKey || inEditable) return;
+      if (event.key.toLowerCase() === "h") {
+        event.preventDefault();
+        handleHelp();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [handleHelp, handleUndoReveal, handleRedoReveal]);
 
-  const resetGame = useCallback(
-    (difficulty: Difficulty) => {
-      stopTimer();
-      clearHintFully();
-      setHelpBanner(null);
-      undoStackRef.current = [];
-      redoStackRef.current = [];
-      const g = createGame(difficulty);
-      setGame(g);
-      gameRef.current = g;
-      persistDifficulty(difficulty);
-    },
-    [stopTimer, clearHintFully],
-  );
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleHelp, handleRedo, handleUndo]);
 
-  const currentDifficulty =
-    DIFFICULTIES.find(
-      (d) => d.rows === game.rows && d.cols === game.cols && d.mines === game.mineTotal,
-    ) ?? DIFFICULTIES[1]!;
+  const highlightByKey = useMemo(() => {
+    const map = new Map<string, HintRole>();
+    if (activeHint) {
+      for (const cell of activeHint.cells) {
+        map.set(`${cell.row},${cell.col}`, cell.role);
+      }
+    } else if (flagContradiction) {
+      for (const cell of flagContradiction.highlightCells) {
+        map.set(`${cell.row},${cell.col}`, cell.role);
+      }
+    }
+    return map;
+  }, [activeHint, flagContradiction]);
 
-  const minesRemaining = Math.max(0, game.mineTotal - flagCount(game));
-  const gameOver = game.status === "won" || game.status === "lost";
+  const hintNarrative = game && activeHint ? getHintNarrative(game, activeHint) : null;
+  const currentDifficulty = (game && findDifficultyForGame(game)) ?? selectedDifficulty;
+  const minesRemaining = game
+    ? Math.max(0, game.mineTotal - flagCount(game))
+    : currentDifficulty.mines;
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-2 sm:p-4">
+    <AppShell>
       <Dialog
         open={helpDialogOpen}
         onOpenChange={(open) => {
           if (!open) dismissHintDialog();
+          else setHelpDialogOpen(true);
         }}
       >
-        <DialogContent className="max-h-[min(90vh,720px)] overflow-y-auto sm:max-w-lg">
-          {activeHint && hintNarrative ? (
+        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+          {game && activeHint && hintNarrative ? (
             <>
               <DialogHeader>
                 <DialogTitle>{hintNarrative.title}</DialogTitle>
@@ -606,7 +502,7 @@ export default function App() {
                 <HintExplanation narrative={hintNarrative} />
               </div>
             </>
-          ) : flagContradiction ? (
+          ) : game && flagContradiction ? (
             <>
               <DialogHeader>
                 <DialogTitle>
@@ -617,152 +513,99 @@ export default function App() {
               </DialogHeader>
               <div className="flex flex-col gap-3">
                 <FlagContradictionPreview game={game} contradiction={flagContradiction} />
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   {flagContradiction.message}
                 </p>
               </div>
             </>
-          ) : null}
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Pattern Help</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {helpBanner ?? formatIdleHelp()}
+              </p>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
-      <main className="flex w-fit max-w-[98vw] flex-col gap-2 sm:max-w-[96vw] sm:gap-3">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-lg font-semibold tracking-tight">Minesweeper</h1>
-          <ThemeToggle preference={themePreference} onChange={setThemePreference} />
-        </div>
+      <SettingsSheet
+        open={settingsOpen}
+        settings={settings}
+        onOpenChange={setSettingsOpen}
+        onSettingsChange={updateSettings}
+        onThemeChange={setTheme}
+      />
 
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          className="w-full justify-stretch"
-          aria-label="Game difficulty"
-          value={currentDifficulty.id}
-          onValueChange={(id) => {
-            if (!id) return;
-            const d = DIFFICULTIES.find((x) => x.id === id);
-            if (d) resetGame(d);
-          }}
-        >
-          {DIFFICULTIES.map((d) => (
-            <ToggleGroupItem
-              key={d.id}
-              value={d.id}
-              className="min-h-11 min-w-0 flex-1 text-sm sm:min-h-8 sm:text-xs"
-            >
-              {d.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-
-        <div className="flex items-center justify-center gap-2 sm:gap-3">
-          <StatReadout icon={Flag} label={`Mines remaining: ${minesRemaining}`}>
-            {String(minesRemaining).padStart(3, "0")}
-          </StatReadout>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-11 w-11 sm:h-8 sm:w-8"
-            onClick={() => resetGame(currentDifficulty)}
-            aria-label="New game"
-          >
-            {gameOver ? (
-              game.status === "won" ? (
-                <Sparkles className="size-4" />
-              ) : (
-                <Frown className="size-4" />
-              )
-            ) : (
-              <RotateCcw className="size-4" />
-            )}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-11 w-11 sm:h-8 sm:w-8"
-            onClick={handleHelp}
-            aria-label="Pattern help"
-            title="Pattern help (H)"
-          >
-            <CircleHelp className="size-4" />
-          </Button>
-
-          <StatReadout
-            icon={Timer}
-            label={`Elapsed time: ${formatTime(game.elapsedSeconds)} seconds`}
-          >
-            {formatTime(game.elapsedSeconds)}
-          </StatReadout>
-        </div>
-
-        <div
-          className="mx-auto grid w-fit overflow-hidden rounded-md bg-muted/50"
-          style={
-            {
-              gridTemplateColumns: `repeat(${game.cols}, minmax(0, 1fr))`,
-              gridTemplateRows: `repeat(${game.rows}, minmax(0, 1fr))`,
-              width: `min(95vw, ${game.cols * 28 + 8}px)`,
-              aspectRatio: `${game.cols} / ${game.rows}`,
-            } as React.CSSProperties
-          }
-        >
-          {Array.from({ length: game.rows }, (_, row) =>
-            Array.from({ length: game.cols }, (_, col) => {
-              const cell = game.cells[row * game.cols + col]!;
-              const hk = `${row},${col}`;
-              return (
-                <CellButton
-                  key={`${row}-${col}`}
-                  cell={cell}
-                  row={row}
-                  col={col}
-                  gameOver={gameOver}
-                  highlight={highlightByKey.get(hk)}
-                  onReveal={handleReveal}
-                  onFlag={handleFlag}
-                />
-              );
-            }),
-          )}
-        </div>
-
-        <p
-          className={cn(
-            "text-center text-xs",
-            gameOver
-              ? [
-                  "font-medium",
-                  game.status === "won"
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-destructive",
-                ]
-              : "text-muted-foreground",
-          )}
-          aria-live="polite"
-        >
-          {gameOver ? (
-            game.status === "won" ? (
-              "You cleared the field!"
-            ) : (
-              "Boom! Better luck next time."
-            )
-          ) : helpBanner ? (
-            helpBanner
-          ) : (
-            <>
-              <span className="sm:hidden">
-                Tap to reveal · Long-press to flag · First tap is always safe
-              </span>
-              <span className="hidden sm:inline">
-                Click to reveal · Right-click to flag · Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) ·
-                Pattern help (H) · First tap is always safe
-              </span>
-            </>
-          )}
-        </p>
-      </main>
-    </div>
+      {viewMode === "menu" ? (
+        <MenuScreen
+          difficulty={selectedDifficulty}
+          difficulties={DIFFICULTIES}
+          canResume={Boolean(savedGame && isResumableGame(savedGame))}
+          themeName={themeName}
+          onDifficultyChange={handleDifficultyChange}
+          onNewGame={() => handleNewGame(selectedDifficulty)}
+          onResume={handleResume}
+          onHelp={handleHelp}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onThemeChange={setTheme}
+        />
+      ) : game && isDesktop ? (
+        <DesktopGameScreen
+          game={game}
+          difficulty={currentDifficulty}
+          difficulties={DIFFICULTIES}
+          settings={settings}
+          themeName={themeName}
+          minesRemaining={minesRemaining}
+          helpBanner={helpBanner}
+          highlights={highlightByKey}
+          onHelp={handleHelp}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onThemeChange={setTheme}
+          onPrimaryAction={handlePrimaryAction}
+          onSecondaryAction={handleSecondaryAction}
+          onStartDifficulty={handleNewGame}
+          onNewGame={() => handleNewGame(currentDifficulty)}
+        />
+      ) : game ? (
+        <GameScreen
+          game={game}
+          difficulty={currentDifficulty}
+          selectedDifficulty={selectedDifficulty}
+          difficulties={DIFFICULTIES}
+          settings={settings}
+          themeName={themeName}
+          minesRemaining={minesRemaining}
+          helpBanner={helpBanner}
+          highlights={highlightByKey}
+          interaction={lastInteraction}
+          onHome={handleHome}
+          onHelp={handleHelp}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onThemeChange={setTheme}
+          onPrimaryAction={handlePrimaryAction}
+          onSecondaryAction={handleSecondaryAction}
+          onDifficultyChange={handleDifficultyChange}
+          onNewGame={() => handleNewGame(selectedDifficulty)}
+          onSettingsChange={updateSettings}
+        />
+      ) : (
+        <MenuScreen
+          difficulty={selectedDifficulty}
+          difficulties={DIFFICULTIES}
+          canResume={Boolean(savedGame && isResumableGame(savedGame))}
+          themeName={themeName}
+          onDifficultyChange={handleDifficultyChange}
+          onNewGame={() => handleNewGame(selectedDifficulty)}
+          onResume={handleResume}
+          onHelp={handleHelp}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onThemeChange={setTheme}
+        />
+      )}
+    </AppShell>
   );
 }
