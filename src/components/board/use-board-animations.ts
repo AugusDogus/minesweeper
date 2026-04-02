@@ -11,9 +11,10 @@ export type BoardInteraction = {
   readonly kind: "primary" | "secondary";
 } | null;
 
-const REVEAL_BASE_STAGGER = 12;
-const REVEAL_MAX_STAGGER = 180;
+const REVEAL_BASE_STAGGER = 75;
+const REVEAL_MAX_STAGGER = 480;
 const LARGE_BATCH_THRESHOLD = 180;
+const ACCELERATE_DECELERATE = "cubic-bezier(0.42, 0, 0.58, 1)";
 const CLASS_REVEAL = "board-cell--anim-reveal";
 const CLASS_FLAG = "board-cell--anim-flag";
 const CLASS_UNFLAG = "board-cell--anim-unflag";
@@ -111,7 +112,7 @@ export function useBoardAnimations({
     if (changes.length === 0) return;
     if (animationSpeed === 0) return;
 
-    const speedFactor = 1 / Math.max(0.65, animationSpeed);
+    const durationMultiplier = Math.max(0.35, animationSpeed);
     const sourceRow = interaction?.row ?? changes[0]!.row;
     const sourceCol = interaction?.col ?? changes[0]!.col;
     const sorted = [...changes].sort((a, b) => {
@@ -126,22 +127,22 @@ export function useBoardAnimations({
       const node = nodesRef.current.get(makeCellKey(change.row, change.col));
       if (!node) continue;
       const dist = distance(change.row, change.col, sourceRow, sourceCol);
-      const delay = Math.min(REVEAL_MAX_STAGGER, dist * REVEAL_BASE_STAGGER) * speedFactor;
+      const delay = Math.min(REVEAL_MAX_STAGGER, dist * REVEAL_BASE_STAGGER) * durationMultiplier;
       const content = node.querySelector<HTMLElement>(".board-cell__content");
       node.getAnimations().forEach((animation) => animation.cancel());
       content?.getAnimations().forEach((animation) => animation.cancel());
       if (change.kind === "revealed") {
-        applyClassAnimation(node, CLASS_REVEAL, delay, 150 * speedFactor);
+        applyClassAnimation(node, CLASS_REVEAL, delay, 720 * durationMultiplier);
         content?.animate(
           [
-            { opacity: 0, transform: "translateZ(0) scale(0.6)" },
-            { offset: 0.6, opacity: 1, transform: "translateZ(0) scale(1.08)" },
+            { opacity: 0, transform: "translateZ(0) scale(0.82)" },
+            { offset: 0.55, opacity: 1, transform: "translateZ(0) scale(1.08)" },
             { opacity: 1, transform: "translateZ(0) scale(1)" },
           ],
           {
-            duration: 110 * speedFactor,
+            duration: 280 * durationMultiplier,
             delay,
-            easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+            easing: ACCELERATE_DECELERATE,
             fill: "both",
           },
         );
@@ -150,7 +151,7 @@ export function useBoardAnimations({
           node,
           change.kind === "wonAutoFlag" ? CLASS_WIN_FLAG : CLASS_FLAG,
           delay,
-          130 * speedFactor,
+          220 * durationMultiplier,
         );
         content?.animate(
           [
@@ -163,14 +164,14 @@ export function useBoardAnimations({
             { transform: "translateZ(0) scale(1) translateY(0)", opacity: 1 },
           ],
           {
-            duration: 120 * speedFactor,
+            duration: 220 * durationMultiplier,
             delay,
-            easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+            easing: ACCELERATE_DECELERATE,
             fill: "both",
           },
         );
       } else if (change.kind === "unflagged") {
-        applyClassAnimation(node, CLASS_UNFLAG, delay, 110 * speedFactor);
+        applyClassAnimation(node, CLASS_UNFLAG, delay, 180 * durationMultiplier);
         content?.animate(
           [
             { transform: "translateZ(0) scale(1)", opacity: 1 },
@@ -178,14 +179,14 @@ export function useBoardAnimations({
             { transform: "translateZ(0) scale(0.92)", opacity: 0 },
           ],
           {
-            duration: 110 * speedFactor,
+            duration: 180 * durationMultiplier,
             delay,
-            easing: "ease-out",
+            easing: ACCELERATE_DECELERATE,
             fill: "both",
           },
         );
       } else if (change.kind === "exploded") {
-        applyClassAnimation(node, CLASS_EXPLODE, delay, 180 * speedFactor);
+        applyClassAnimation(node, CLASS_EXPLODE, delay, 280 * durationMultiplier);
         content?.animate(
           [
             { transform: "translateZ(0) scale(0.85)", opacity: 0.5 },
@@ -193,14 +194,14 @@ export function useBoardAnimations({
             { transform: "translateZ(0) scale(1)", opacity: 1 },
           ],
           {
-            duration: 180 * speedFactor,
+            duration: 280 * durationMultiplier,
             delay,
-            easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+            easing: ACCELERATE_DECELERATE,
             fill: "both",
           },
         );
       } else if (change.kind === "wrongFlag") {
-        applyClassAnimation(node, CLASS_WRONG_FLAG, delay, 160 * speedFactor);
+        applyClassAnimation(node, CLASS_WRONG_FLAG, delay, 240 * durationMultiplier);
         content?.animate(
           [
             { transform: "translateZ(0) scale(1)", opacity: 1 },
@@ -208,9 +209,9 @@ export function useBoardAnimations({
             { transform: "translateZ(0) scale(1)", opacity: 1 },
           ],
           {
-            duration: 160 * speedFactor,
+            duration: 240 * durationMultiplier,
             delay,
-            easing: "ease-out",
+            easing: ACCELERATE_DECELERATE,
             fill: "both",
           },
         );
@@ -220,11 +221,11 @@ export function useBoardAnimations({
     const centerX = (sourceCol + 0.5) * cellSize;
     const centerY = (sourceRow + 0.5) * cellSize;
     if (game.status === "lost") {
-      enqueueEffect({ kind: "loss-shock", x: centerX, y: centerY }, 420 * speedFactor);
+      enqueueEffect({ kind: "loss-shock", x: centerX, y: centerY }, 420 * durationMultiplier);
     } else if (game.status === "won") {
-      enqueueEffect({ kind: "win-sweep", x: centerX, y: centerY }, 700 * speedFactor);
+      enqueueEffect({ kind: "win-sweep", x: centerX, y: centerY }, 700 * durationMultiplier);
     } else if (changes.some((change) => change.kind === "revealed")) {
-      enqueueEffect({ kind: "reveal-ripple", x: centerX, y: centerY }, 360 * speedFactor);
+      enqueueEffect({ kind: "reveal-ripple", x: centerX, y: centerY }, 720 * durationMultiplier);
     }
   }, [
     animationSpeed,

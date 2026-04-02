@@ -402,19 +402,32 @@
 
 .game-screen {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  padding: 4.5rem 0.8rem 1rem;
+  display: grid;
+  grid-template-rows: 4.125rem minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 100svh;
+  overflow: hidden;
+}
+
+.game-screen--post-game {
+  grid-template-rows: 4.125rem minmax(0, 3fr) minmax(0, 1fr);
+}
+
+.game-screen__header {
+  position: relative;
+  z-index: 20;
 }
 
 .hud-cluster {
   position: absolute;
-  top: 4.6rem;
-  left: 50%;
+  inset: 0;
   z-index: 15;
-  transform: translateX(-50%);
   display: grid;
+  justify-content: center;
+  align-content: start;
   gap: 0.4rem;
+  padding-top: 0.9rem;
+  pointer-events: none;
 }
 
 .hud-pill {
@@ -439,15 +452,26 @@
 .game-screen__board {
   position: relative;
   min-height: 0;
-  flex: 1 1 auto;
   display: flex;
   align-items: stretch;
-  padding-top: 3.4rem;
-  padding-bottom: 1.25rem;
+  padding: 0 0 0.75rem;
+}
+
+.game-screen__footer {
+  position: relative;
+  z-index: 18;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0 0.75rem calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+}
+
+.game-screen--post-game .game-screen__footer {
+  gap: 0.35rem;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.35rem);
 }
 
 .game-screen__banner {
-  padding: 0 0.5rem 0.5rem;
+  padding: 0;
   text-align: center;
   font-size: 0.82rem;
   line-height: 1.45;
@@ -455,12 +479,9 @@
 }
 
 .game-screen__toggle {
-  position: sticky;
-  bottom: 0.75rem;
-  z-index: 18;
   display: flex;
   justify-content: center;
-  padding-top: 0.5rem;
+  padding-top: 0.1rem;
 }
 
 .action-toggle {
@@ -517,23 +538,18 @@
 
 .board-frame {
   position: relative;
-  border-radius: 1.15rem;
-  padding: 0.45rem;
-  background: linear-gradient(
-    180deg,
-    var(--board-frame),
-    color-mix(in srgb, var(--board-surface) 88%, transparent)
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    0 18px 32px var(--board-shadow);
+  border-radius: 1rem;
+  overflow: hidden;
+  background: var(--board-frame);
+  box-shadow: 0 18px 32px var(--board-shadow);
 }
 
 .board-grid {
   display: grid;
-  border-radius: 0.85rem;
+  border-radius: 1rem;
   overflow: hidden;
   background: var(--board-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .board-cell {
@@ -649,16 +665,13 @@
 }
 
 .post-game-panel {
-  position: absolute;
-  inset: auto 0.75rem 0.75rem;
-  z-index: 19;
+  position: relative;
   display: grid;
-  gap: 0.85rem;
-  padding: 1rem;
-  border: 1px solid var(--shell-panel-border);
-  border-radius: 1.5rem;
-  background: color-mix(in srgb, var(--background) 86%, transparent);
-  backdrop-filter: blur(20px);
+  align-content: start;
+  justify-items: center;
+  gap: 0.7rem;
+  min-height: 0;
+  padding: 0.15rem 1.35rem 0;
   animation: post-panel-enter 220ms var(--ease-out-strong);
 }
 
@@ -666,6 +679,11 @@
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.03em;
+}
+
+.post-game-panel__button {
+  width: min(100%, 28.75rem);
+  margin-top: 0.1rem;
 }
 
 .settings-sheet {

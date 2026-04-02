@@ -56,7 +56,7 @@ export function GameScreen({
   onSettingsChange: (patch: Partial<GameSettings>) => void;
 }) {
   const gameOver = game.status === "won" || game.status === "lost";
-  const showActionToggle = !settings.longPressEnabled;
+  const showActionToggle = settings.showActionToggle || !settings.longPressEnabled;
   const statusMessage = gameOver
     ? game.status === "won"
       ? "You cleared the field."
@@ -64,23 +64,33 @@ export function GameScreen({
     : helpBanner;
 
   return (
-    <section className="game-screen">
-      <TopChrome
-        themeName={themeName}
-        onThemeChange={onThemeChange}
-        onHome={onHome}
-        onOpenSettings={onOpenSettings}
-        onHelp={onHelp}
-      />
+    <section
+      className={[
+        "game-screen",
+        gameOver ? "game-screen--post-game" : "",
+        showActionToggle ? "game-screen--has-toggle" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="game-screen__header">
+        <TopChrome
+          themeName={themeName}
+          onThemeChange={onThemeChange}
+          onHome={onHome}
+          onOpenSettings={onOpenSettings}
+          onHelp={onHelp}
+        />
 
-      <div className="hud-cluster" aria-live="polite">
-        <div className="hud-pill">
-          <Flag className="size-3.5" />
-          <span>{String(minesRemaining).padStart(3, "0")}</span>
-        </div>
-        <div className="hud-pill">
-          <Timer className="size-3.5" />
-          <span>{formatTime(game.elapsedSeconds)}</span>
+        <div className="hud-cluster" aria-live="polite">
+          <div className="hud-pill">
+            <Flag className="size-3.5" />
+            <span>{String(minesRemaining).padStart(3, "0")}</span>
+          </div>
+          <div className="hud-pill">
+            <Timer className="size-3.5" />
+            <span>{formatTime(game.elapsedSeconds)}</span>
+          </div>
         </div>
       </div>
 
@@ -97,30 +107,32 @@ export function GameScreen({
         />
       </div>
 
-      {statusMessage ? (
-        <p className="game-screen__banner" aria-live="polite">
-          {statusMessage}
-        </p>
-      ) : null}
+      <div className="game-screen__footer">
+        {statusMessage ? (
+          <p className="game-screen__banner" aria-live="polite">
+            {statusMessage}
+          </p>
+        ) : null}
 
-      {showActionToggle ? (
-        <div className="game-screen__toggle">
-          <ActionToggleBar
-            value={settings.defaultAction}
-            onChange={(mode) => onSettingsChange({ defaultAction: mode })}
+        {showActionToggle ? (
+          <div className="game-screen__toggle">
+            <ActionToggleBar
+              value={settings.defaultAction}
+              onChange={(mode) => onSettingsChange({ defaultAction: mode })}
+            />
+          </div>
+        ) : null}
+
+        {gameOver ? (
+          <PostGamePanel
+            status={game.status}
+            difficulty={selectedDifficulty}
+            difficulties={difficulties}
+            onDifficultyChange={onDifficultyChange}
+            onNewGame={onNewGame}
           />
-        </div>
-      ) : null}
-
-      {gameOver ? (
-        <PostGamePanel
-          status={game.status}
-          difficulty={selectedDifficulty}
-          difficulties={difficulties}
-          onDifficultyChange={onDifficultyChange}
-          onNewGame={onNewGame}
-        />
-      ) : null}
+        ) : null}
+      </div>
     </section>
   );
 }

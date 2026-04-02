@@ -41,6 +41,7 @@ export function BoardViewport({
   const { surfaceRef, viewportRef, viewportHandlers } = useBoardGestures({
     contentWidth: boardWidth,
     contentHeight: boardHeight,
+    maxScale: 200 / BOARD_CELL_SIZE,
     resetKey,
   });
 

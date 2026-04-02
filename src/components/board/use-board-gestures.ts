@@ -14,6 +14,13 @@ type PointerSnapshot = {
   y: number;
 };
 
+type Bounds = {
+  minTx: number;
+  maxTx: number;
+  minTy: number;
+  maxTy: number;
+};
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -46,6 +53,7 @@ export function useBoardGestures({
   const fitScaleRef = useRef(1);
   const pointersRef = useRef(new Map<number, PointerSnapshot>());
   const transitionTimeoutRef = useRef<number | null>(null);
+  const flingFrameRef = useRef<number | null>(null);
   const gestureMetaRef = useRef({
     moved: false,
     suppressClickUntil: 0,
@@ -54,12 +62,22 @@ export function useBoardGestures({
     pinchDistance: 0,
     pinchScale: 1,
     lastTapAt: 0,
+    lastMoveAt: 0,
+    velocityX: 0,
+    velocityY: 0,
   });
 
   const applyTransform = useCallback((nextState: ViewportState) => {
     stateRef.current = nextState;
     if (surfaceRef.current) {
       surfaceRef.current.style.transform = `translate3d(${nextState.tx}px, ${nextState.ty}px, 0) scale(${nextState.scale})`;
+    }
+  }, []);
+
+  const stopFling = useCallback(() => {
+    if (flingFrameRef.current !== null) {
+      cancelAnimationFrame(flingFrameRef.current);
+      flingFrameRef.current = null;
     }
   }, []);
 
@@ -77,25 +95,54 @@ export function useBoardGestures({
     }, 220);
   }, []);
 
-  const clampTransform = useCallback(
+  const getBounds = useCallback(
     (scale: number, tx: number, ty: number) => {
       const viewport = viewportRef.current;
       if (!viewport) {
-        return { tx, ty };
+        return {
+          minTx: tx,
+          maxTx: tx,
+          minTy: ty,
+          maxTy: ty,
+        } satisfies Bounds;
       }
       const rect = viewport.getBoundingClientRect();
       const scaledWidth = contentWidth * scale;
       const scaledHeight = contentHeight * scale;
-      const minTx = Math.min(0, rect.width - scaledWidth);
-      const maxTx = scaledWidth <= rect.width ? (rect.width - scaledWidth) / 2 : 0;
-      const minTy = Math.min(0, rect.height - scaledHeight);
-      const maxTy = scaledHeight <= rect.height ? (rect.height - scaledHeight) / 2 : 0;
-      return {
-        tx: clamp(tx, minTx, maxTx),
-        ty: clamp(ty, minTy, maxTy),
-      };
+      const centeredTx = (rect.width - scaledWidth) / 2;
+      const centeredTy = (rect.height - scaledHeight) / 2;
+      const minTx = scaledWidth <= rect.width ? centeredTx : rect.width - scaledWidth;
+      const maxTx = scaledWidth <= rect.width ? centeredTx : 0;
+      const minTy = scaledHeight <= rect.height ? centeredTy : rect.height - scaledHeight;
+      const maxTy = scaledHeight <= rect.height ? centeredTy : 0;
+      return { minTx, maxTx, minTy, maxTy };
     },
     [contentHeight, contentWidth],
+  );
+
+  const clampTransform = useCallback(
+    (scale: number, tx: number, ty: number) => {
+      const bounds = getBounds(scale, tx, ty);
+      return {
+        tx: clamp(tx, bounds.minTx, bounds.maxTx),
+        ty: clamp(ty, bounds.minTy, bounds.maxTy),
+      };
+    },
+    [getBounds],
+  );
+
+  const applyResistance = useCallback(
+    (scale: number, tx: number, ty: number) => {
+      const bounds = getBounds(scale, tx, ty);
+      let nextTx = tx;
+      let nextTy = ty;
+      if (tx < bounds.minTx) nextTx = bounds.minTx + (tx - bounds.minTx) / 2;
+      else if (tx > bounds.maxTx) nextTx = bounds.maxTx + (tx - bounds.maxTx) / 2;
+      if (ty < bounds.minTy) nextTy = bounds.minTy + (ty - bounds.minTy) / 2;
+      else if (ty > bounds.maxTy) nextTy = bounds.maxTy + (ty - bounds.maxTy) / 2;
+      return { tx: nextTx, ty: nextTy };
+    },
+    [getBounds],
   );
 
   const zoomAtPoint = useCallback(
@@ -139,7 +186,52 @@ export function useBoardGestures({
     applyTransform({ scale, tx, ty, mode: "idle" });
   }, [applySurfaceTransition, applyTransform, contentHeight, contentWidth]);
 
+  const settleIntoBounds = useCallback(() => {
+    const { scale, tx, ty } = stateRef.current;
+    const clamped = clampTransform(scale, tx, ty);
+    if (clamped.tx === tx && clamped.ty === ty) return;
+    applySurfaceTransition("transform 220ms cubic-bezier(0.23, 1, 0.32, 1)");
+    applyTransform({ ...stateRef.current, tx: clamped.tx, ty: clamped.ty, mode: "idle" });
+  }, [applySurfaceTransition, applyTransform, clampTransform]);
+
+  const startFling = useCallback(() => {
+    stopFling();
+    const startVelocityX = gestureMetaRef.current.velocityX;
+    const startVelocityY = gestureMetaRef.current.velocityY;
+    if (Math.hypot(startVelocityX, startVelocityY) < 0.18) {
+      settleIntoBounds();
+      return;
+    }
+
+    let velocityX = startVelocityX * 18;
+    let velocityY = startVelocityY * 18;
+    let lastTime = performance.now();
+
+    const tick = (time: number) => {
+      const elapsed = Math.min(34, time - lastTime);
+      lastTime = time;
+      const nextTx = stateRef.current.tx + velocityX * elapsed;
+      const nextTy = stateRef.current.ty + velocityY * elapsed;
+      const resisted = applyResistance(stateRef.current.scale, nextTx, nextTy);
+      applyTransform({ ...stateRef.current, tx: resisted.tx, ty: resisted.ty, mode: "panning" });
+
+      velocityX *= 0.92;
+      velocityY *= 0.92;
+
+      if (Math.hypot(velocityX, velocityY) < 0.02) {
+        flingFrameRef.current = null;
+        settleIntoBounds();
+        return;
+      }
+
+      flingFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    flingFrameRef.current = requestAnimationFrame(tick);
+  }, [applyResistance, applyTransform, settleIntoBounds, stopFling]);
+
   useLayoutEffect(() => {
+    stopFling();
     resetView();
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -149,11 +241,12 @@ export function useBoardGestures({
     observer.observe(viewport);
     return () => {
       observer.disconnect();
+      stopFling();
       if (transitionTimeoutRef.current !== null) {
         window.clearTimeout(transitionTimeoutRef.current);
       }
     };
-  }, [resetKey, resetView]);
+  }, [resetKey, resetView, stopFling]);
 
   const handlers = useMemo(
     () => ({
@@ -164,6 +257,7 @@ export function useBoardGestures({
         }
       },
       onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+        stopFling();
         const pointer: PointerSnapshot = {
           startX: event.clientX,
           startY: event.clientY,
@@ -180,6 +274,9 @@ export function useBoardGestures({
           gestureMetaRef.current.moved = false;
           gestureMetaRef.current.panOriginTx = stateRef.current.tx;
           gestureMetaRef.current.panOriginTy = stateRef.current.ty;
+          gestureMetaRef.current.lastMoveAt = performance.now();
+          gestureMetaRef.current.velocityX = 0;
+          gestureMetaRef.current.velocityY = 0;
         } else if (pointersRef.current.size === 2) {
           const [first, second] = [...pointersRef.current.values()];
           gestureMetaRef.current.pinchDistance = distance(first!, second!);
@@ -203,6 +300,8 @@ export function useBoardGestures({
           const center = midpoint(first!, second!);
           zoomAtPoint(targetScale, center.x, center.y);
           gestureMetaRef.current.moved = true;
+          gestureMetaRef.current.velocityX = 0;
+          gestureMetaRef.current.velocityY = 0;
           gestureMetaRef.current.suppressClickUntil = performance.now() + 280;
           return;
         }
@@ -216,13 +315,18 @@ export function useBoardGestures({
         if (stateRef.current.scale <= fitScaleRef.current + 0.001) return;
         if (!gestureMetaRef.current.moved) return;
 
+        const now = performance.now();
+        const elapsed = Math.max(16, now - gestureMetaRef.current.lastMoveAt);
         const rawTx = gestureMetaRef.current.panOriginTx + deltaX;
         const rawTy = gestureMetaRef.current.panOriginTy + deltaY;
-        const clamped = clampTransform(stateRef.current.scale, rawTx, rawTy);
+        const next = applyResistance(stateRef.current.scale, rawTx, rawTy);
+        gestureMetaRef.current.velocityX = (next.tx - stateRef.current.tx) / elapsed;
+        gestureMetaRef.current.velocityY = (next.ty - stateRef.current.ty) / elapsed;
+        gestureMetaRef.current.lastMoveAt = now;
         applyTransform({
           scale: stateRef.current.scale,
-          tx: clamped.tx,
-          ty: clamped.ty,
+          tx: next.tx,
+          ty: next.ty,
           mode: "panning",
         });
         gestureMetaRef.current.suppressClickUntil = performance.now() + 280;
@@ -244,6 +348,11 @@ export function useBoardGestures({
 
         if (pointersRef.current.size === 0) {
           applyTransform({ ...stateRef.current, mode: "idle" });
+          if (gestureMetaRef.current.moved && event.pointerType !== "mouse") {
+            startFling();
+          } else {
+            settleIntoBounds();
+          }
         } else if (pointersRef.current.size === 1) {
           gestureMetaRef.current.panOriginTx = stateRef.current.tx;
           gestureMetaRef.current.panOriginTy = stateRef.current.ty;
@@ -269,6 +378,7 @@ export function useBoardGestures({
         }
       },
       onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => {
+        stopFling();
         pointersRef.current.delete(event.pointerId);
         try {
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -278,9 +388,19 @@ export function useBoardGestures({
           /* ignore */
         }
         applyTransform({ ...stateRef.current, mode: "idle" });
+        settleIntoBounds();
       },
     }),
-    [applySurfaceTransition, applyTransform, clampTransform, maxScale, zoomAtPoint],
+    [
+      applyResistance,
+      applySurfaceTransition,
+      applyTransform,
+      maxScale,
+      settleIntoBounds,
+      startFling,
+      stopFling,
+      zoomAtPoint,
+    ],
   );
 
   return {

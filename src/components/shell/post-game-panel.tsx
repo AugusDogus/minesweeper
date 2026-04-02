@@ -18,17 +18,14 @@ export function PostGamePanel({
   return (
     <div className="post-game-panel">
       <p className="post-game-panel__eyebrow">{status === "won" ? "Field Cleared" : "Mine Hit"}</p>
-      <h2 className="post-game-panel__title">
-        {status === "won" ? "You cleared the board." : "That run is over."}
-      </h2>
+      <Button size="lg" className="post-game-panel__button" onClick={onNewGame}>
+        Start New Game
+      </Button>
       <DifficultySwipeSelector
         value={difficulty.id}
         onChange={onDifficultyChange}
         options={difficulties}
       />
-      <Button size="lg" className="mt-3" onClick={onNewGame}>
-        Start New Game
-      </Button>
     </div>
   );
 }

@@ -22,7 +22,7 @@ export function createDefaultSettings(): GameSettings {
     defaultAction: "reveal",
     showActionToggle: false,
     longPressEnabled: true,
-    longPressMs: 325,
+    longPressMs: 300,
     easyDigging: false,
     easyFlagging: false,
     animationSpeed: 1,
