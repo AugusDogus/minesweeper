@@ -540,7 +540,8 @@
   transition:
     transform 120ms var(--ease-out-strong),
     filter 140ms ease-out,
-    background-color 140ms ease-out;
+    background-color 140ms ease-out,
+    box-shadow 150ms ease-out;
 }
 
 .board-cell:active {
@@ -552,6 +553,7 @@
   place-items: center;
   width: 100%;
   height: 100%;
+  transform-origin: center;
 }
 
 .board-cell--hidden {
@@ -578,6 +580,35 @@
 .board-cell--wrong-flag {
   background: color-mix(in srgb, var(--destructive) 16%, var(--cell-revealed));
   text-decoration: line-through;
+}
+
+.board-cell--anim-reveal {
+  animation: board-cell-reveal var(--board-duration, 150ms) var(--ease-out-strong)
+    var(--board-delay, 0ms) both;
+}
+
+.board-cell--anim-flag {
+  animation: board-cell-flag var(--board-duration, 130ms) var(--ease-out-strong)
+    var(--board-delay, 0ms) both;
+}
+
+.board-cell--anim-unflag {
+  animation: board-cell-unflag var(--board-duration, 110ms) ease-out var(--board-delay, 0ms) both;
+}
+
+.board-cell--anim-explode {
+  animation: board-cell-explode var(--board-duration, 180ms) var(--ease-out-strong)
+    var(--board-delay, 0ms) both;
+}
+
+.board-cell--anim-wrong-flag {
+  animation: board-cell-wrong-flag var(--board-duration, 160ms) ease-out var(--board-delay, 0ms)
+    both;
+}
+
+.board-cell--anim-win-flag {
+  animation: board-cell-win-flag var(--board-duration, 130ms) var(--ease-out-strong)
+    var(--board-delay, 0ms) both;
 }
 
 .board-overlay {
@@ -787,6 +818,95 @@
   to {
     opacity: 0;
     transform: translate(-50%, -50%) scale(16);
+  }
+}
+
+@keyframes board-cell-reveal {
+  0% {
+    transform: translateZ(0) scale(0.94);
+    filter: brightness(1.16);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.18),
+      0 0 0 rgba(0, 0, 0, 0);
+  }
+  55% {
+    transform: translateZ(0) scale(1.02);
+    filter: brightness(1.04);
+  }
+  100% {
+    transform: translateZ(0) scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes board-cell-flag {
+  0% {
+    transform: translateZ(0) scale(0.92);
+    filter: brightness(0.98);
+  }
+  70% {
+    transform: translateZ(0) scale(1.04);
+    filter: brightness(1.08);
+  }
+  100% {
+    transform: translateZ(0) scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes board-cell-unflag {
+  0% {
+    transform: translateZ(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateZ(0) scale(0.98);
+    opacity: 1;
+  }
+}
+
+@keyframes board-cell-explode {
+  0% {
+    transform: translateZ(0) scale(0.96);
+    filter: brightness(1.18);
+  }
+  35% {
+    transform: translateZ(0) scale(1.1);
+    filter: brightness(1.36);
+  }
+  100% {
+    transform: translateZ(0) scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes board-cell-wrong-flag {
+  0% {
+    transform: translateZ(0) scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: translateZ(0) scale(0.96);
+    filter: brightness(1.15);
+  }
+  100% {
+    transform: translateZ(0) scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes board-cell-win-flag {
+  0% {
+    transform: translateZ(0) scale(0.92);
+    filter: brightness(1);
+  }
+  60% {
+    transform: translateZ(0) scale(1.06);
+    filter: brightness(1.16);
+  }
+  100% {
+    transform: translateZ(0) scale(1);
+    filter: brightness(1);
   }
 }
 

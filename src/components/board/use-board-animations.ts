@@ -14,6 +14,12 @@ export type BoardInteraction = {
 const REVEAL_BASE_STAGGER = 12;
 const REVEAL_MAX_STAGGER = 180;
 const LARGE_BATCH_THRESHOLD = 180;
+const CLASS_REVEAL = "board-cell--anim-reveal";
+const CLASS_FLAG = "board-cell--anim-flag";
+const CLASS_UNFLAG = "board-cell--anim-unflag";
+const CLASS_EXPLODE = "board-cell--anim-explode";
+const CLASS_WRONG_FLAG = "board-cell--anim-wrong-flag";
+const CLASS_WIN_FLAG = "board-cell--anim-win-flag";
 
 function makeCellKey(row: number, col: number): string {
   return `${row},${col}`;
@@ -39,6 +45,11 @@ export function useBoardAnimations({
   const timeoutsRef = useRef<number[]>([]);
   const [effects, setEffects] = useState<OverlayEffect[]>([]);
 
+  const queueTimeout = useCallback((callback: () => void, delay: number) => {
+    const timeout = window.setTimeout(callback, delay);
+    timeoutsRef.current.push(timeout);
+  }, []);
+
   const registerCell = useCallback((key: string, node: HTMLButtonElement | null) => {
     if (node) nodesRef.current.set(key, node);
     else nodesRef.current.delete(key);
@@ -52,10 +63,36 @@ export function useBoardAnimations({
     (effect: Omit<OverlayEffect, "id">, duration: number) => {
       const id = window.setTimeout(() => undefined, 0);
       setEffects((current) => [...current, { ...effect, id }]);
-      const timeout = window.setTimeout(() => clearEffects(id), duration);
-      timeoutsRef.current.push(timeout);
+      queueTimeout(() => clearEffects(id), duration);
     },
-    [clearEffects],
+    [clearEffects, queueTimeout],
+  );
+
+  const applyClassAnimation = useCallback(
+    (node: HTMLButtonElement, className: string, delay: number, duration: number) => {
+      node.style.setProperty("--board-delay", `${delay}ms`);
+      node.style.setProperty("--board-duration", `${duration}ms`);
+      node.classList.remove(
+        CLASS_REVEAL,
+        CLASS_FLAG,
+        CLASS_UNFLAG,
+        CLASS_EXPLODE,
+        CLASS_WRONG_FLAG,
+        CLASS_WIN_FLAG,
+      );
+      // Force restart for repeated interactions on the same node.
+      void node.offsetWidth;
+      node.classList.add(className);
+      queueTimeout(
+        () => {
+          node.classList.remove(className);
+          node.style.removeProperty("--board-delay");
+          node.style.removeProperty("--board-duration");
+        },
+        delay + duration + 40,
+      );
+    },
+    [queueTimeout],
   );
 
   useEffect(() => {
@@ -90,27 +127,39 @@ export function useBoardAnimations({
       if (!node) continue;
       const dist = distance(change.row, change.col, sourceRow, sourceCol);
       const delay = Math.min(REVEAL_MAX_STAGGER, dist * REVEAL_BASE_STAGGER) * speedFactor;
+      const content = node.querySelector<HTMLElement>(".board-cell__content");
       node.getAnimations().forEach((animation) => animation.cancel());
-
+      content?.getAnimations().forEach((animation) => animation.cancel());
       if (change.kind === "revealed") {
-        node.animate(
+        applyClassAnimation(node, CLASS_REVEAL, delay, 150 * speedFactor);
+        content?.animate(
           [
-            { transform: "translateZ(0) scale(0.94)", filter: "brightness(1.18)" },
-            { offset: 0.55, transform: "translateZ(0) scale(1.02)", filter: "brightness(1.05)" },
-            { transform: "translateZ(0) scale(1)", filter: "brightness(1)" },
+            { opacity: 0, transform: "translateZ(0) scale(0.6)" },
+            { offset: 0.6, opacity: 1, transform: "translateZ(0) scale(1.08)" },
+            { opacity: 1, transform: "translateZ(0) scale(1)" },
           ],
           {
-            duration: 140 * speedFactor,
+            duration: 110 * speedFactor,
             delay,
             easing: "cubic-bezier(0.23, 1, 0.32, 1)",
             fill: "both",
           },
         );
       } else if (change.kind === "flagged" || change.kind === "wonAutoFlag") {
-        node.animate(
+        applyClassAnimation(
+          node,
+          change.kind === "wonAutoFlag" ? CLASS_WIN_FLAG : CLASS_FLAG,
+          delay,
+          130 * speedFactor,
+        );
+        content?.animate(
           [
-            { transform: "translateZ(0) scale(0.9) translateY(2px)", opacity: 0.7 },
-            { offset: 0.65, transform: "translateZ(0) scale(1.06) translateY(-1px)", opacity: 1 },
+            { transform: "translateZ(0) scale(0.76) translateY(4px)", opacity: 0.4 },
+            {
+              offset: 0.65,
+              transform: "translateZ(0) scale(1.12) translateY(-1px)",
+              opacity: 1,
+            },
             { transform: "translateZ(0) scale(1) translateY(0)", opacity: 1 },
           ],
           {
@@ -121,11 +170,12 @@ export function useBoardAnimations({
           },
         );
       } else if (change.kind === "unflagged") {
-        node.animate(
+        applyClassAnimation(node, CLASS_UNFLAG, delay, 110 * speedFactor);
+        content?.animate(
           [
             { transform: "translateZ(0) scale(1)", opacity: 1 },
-            { transform: "translateZ(0) scale(0.96)", opacity: 0.82 },
-            { transform: "translateZ(0) scale(1)", opacity: 1 },
+            { transform: "translateZ(0) scale(0.72)", opacity: 0.3 },
+            { transform: "translateZ(0) scale(0.92)", opacity: 0 },
           ],
           {
             duration: 110 * speedFactor,
@@ -135,11 +185,12 @@ export function useBoardAnimations({
           },
         );
       } else if (change.kind === "exploded") {
-        node.animate(
+        applyClassAnimation(node, CLASS_EXPLODE, delay, 180 * speedFactor);
+        content?.animate(
           [
-            { transform: "translateZ(0) scale(0.96)", filter: "brightness(1.2)" },
-            { offset: 0.35, transform: "translateZ(0) scale(1.08)", filter: "brightness(1.35)" },
-            { transform: "translateZ(0) scale(1)", filter: "brightness(1)" },
+            { transform: "translateZ(0) scale(0.85)", opacity: 0.5 },
+            { offset: 0.35, transform: "translateZ(0) scale(1.18)", opacity: 1 },
+            { transform: "translateZ(0) scale(1)", opacity: 1 },
           ],
           {
             duration: 180 * speedFactor,
@@ -149,10 +200,11 @@ export function useBoardAnimations({
           },
         );
       } else if (change.kind === "wrongFlag") {
-        node.animate(
+        applyClassAnimation(node, CLASS_WRONG_FLAG, delay, 160 * speedFactor);
+        content?.animate(
           [
             { transform: "translateZ(0) scale(1)", opacity: 1 },
-            { transform: "translateZ(0) scale(0.98)", opacity: 0.72 },
+            { transform: "translateZ(0) scale(0.88)", opacity: 0.72 },
             { transform: "translateZ(0) scale(1)", opacity: 1 },
           ],
           {
@@ -174,7 +226,15 @@ export function useBoardAnimations({
     } else if (changes.some((change) => change.kind === "revealed")) {
       enqueueEffect({ kind: "reveal-ripple", x: centerX, y: centerY }, 360 * speedFactor);
     }
-  }, [animationSpeed, cellSize, clearEffects, enqueueEffect, game, interaction]);
+  }, [
+    animationSpeed,
+    applyClassAnimation,
+    cellSize,
+    clearEffects,
+    enqueueEffect,
+    game,
+    interaction,
+  ]);
 
   return {
     effects,

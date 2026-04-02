@@ -45,6 +45,7 @@ export function useBoardGestures({
   const stateRef = useRef<ViewportState>({ scale: 1, tx: 0, ty: 0, mode: "idle" });
   const fitScaleRef = useRef(1);
   const pointersRef = useRef(new Map<number, PointerSnapshot>());
+  const transitionTimeoutRef = useRef<number | null>(null);
   const gestureMetaRef = useRef({
     moved: false,
     suppressClickUntil: 0,
@@ -60,6 +61,20 @@ export function useBoardGestures({
     if (surfaceRef.current) {
       surfaceRef.current.style.transform = `translate3d(${nextState.tx}px, ${nextState.ty}px, 0) scale(${nextState.scale})`;
     }
+  }, []);
+
+  const applySurfaceTransition = useCallback((transition: string) => {
+    if (!surfaceRef.current) return;
+    surfaceRef.current.style.transition = transition;
+    if (transitionTimeoutRef.current !== null) {
+      window.clearTimeout(transitionTimeoutRef.current);
+    }
+    transitionTimeoutRef.current = window.setTimeout(() => {
+      if (surfaceRef.current) {
+        surfaceRef.current.style.transition = "";
+      }
+      transitionTimeoutRef.current = null;
+    }, 220);
   }, []);
 
   const clampTransform = useCallback(
@@ -96,7 +111,7 @@ export function useBoardGestures({
       const nextScale = clamp(
         targetScale,
         fitScaleRef.current,
-        Math.max(maxScale, fitScaleRef.current),
+        Math.max(maxScale, fitScaleRef.current * 2.75),
       );
       const rawTx = px - contentX * nextScale;
       const rawTy = py - contentY * nextScale;
@@ -120,8 +135,9 @@ export function useBoardGestures({
     const scale = fitScaleRef.current;
     const tx = (rect.width - contentWidth * scale) / 2;
     const ty = (rect.height - contentHeight * scale) / 2;
+    applySurfaceTransition("transform 200ms cubic-bezier(0.23, 1, 0.32, 1)");
     applyTransform({ scale, tx, ty, mode: "idle" });
-  }, [applyTransform, contentHeight, contentWidth]);
+  }, [applySurfaceTransition, applyTransform, contentHeight, contentWidth]);
 
   useLayoutEffect(() => {
     resetView();
@@ -131,7 +147,12 @@ export function useBoardGestures({
       resetView();
     });
     observer.observe(viewport);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (transitionTimeoutRef.current !== null) {
+        window.clearTimeout(transitionTimeoutRef.current);
+      }
+    };
   }, [resetKey, resetView]);
 
   const handlers = useMemo(
@@ -236,7 +257,11 @@ export function useBoardGestures({
             const targetScale =
               currentScale > fitScaleRef.current + 0.08
                 ? fitScaleRef.current
-                : Math.min(maxScale, Math.max(fitScaleRef.current * 1.8, 1.8));
+                : Math.min(
+                    Math.max(maxScale, fitScaleRef.current * 2.75),
+                    fitScaleRef.current * 1.9,
+                  );
+            applySurfaceTransition("transform 200ms cubic-bezier(0.23, 1, 0.32, 1)");
             zoomAtPoint(targetScale, event.clientX, event.clientY);
             gestureMetaRef.current.suppressClickUntil = performance.now() + 340;
           }
@@ -255,7 +280,7 @@ export function useBoardGestures({
         applyTransform({ ...stateRef.current, mode: "idle" });
       },
     }),
-    [applyTransform, clampTransform, maxScale, zoomAtPoint],
+    [applySurfaceTransition, applyTransform, clampTransform, maxScale, zoomAtPoint],
   );
 
   return {
